@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Research Vault",
-  description: "AI-powered research pattern extraction and synthesis",
+  title: "FolioTrace",
+  description: "Discover papers and trace research answers to their sources",
 };
 
 export default function RootLayout({

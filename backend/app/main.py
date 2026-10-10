@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -7,18 +8,23 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.config import settings
 from app.db import async_session_maker
+from app.models import ImportJob
 from app.routers import (
     paper_patterns_router,
     papers_router,
     patterns_router,
     query_router,
 )
+from app.routers.discovery import router as discovery_router
+from app.routers.research import router as research_router
 from app.services.session_manager import session_manager
+from app.services.source_index import SourceVectorIndex
 from app.services.vector_store import VectorStoreService
+from app.workflows.discovery_import import process_job
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +93,30 @@ async def lifespan(app: FastAPI):
             "Check that Qdrant is running."
         )
 
+    try:
+        SourceVectorIndex().ensure_collection()
+    except Exception:
+        logger.warning("Source vector index unavailable; BM25 search remains available")
+
+    # Jobs survive a process restart. Retry unfinished items when the app returns.
+    try:
+        async with async_session_maker() as db:
+            pending = (
+                (
+                    await db.execute(
+                        select(ImportJob.id).where(
+                            ImportJob.status.in_(["queued", "running"])
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        for job_id in pending:
+            asyncio.create_task(process_job(job_id))
+    except Exception:
+        logger.warning("Could not resume pending import jobs")
+
     # Start session cleanup task
     await session_manager.start_cleanup_task()
 
@@ -124,7 +154,7 @@ openapi_tags = [
 ]
 
 app = FastAPI(
-    title="Research Vault API",
+    title="FolioTrace API",
     description=(
         "An AI research assistant that ingests papers/articles, extracts structured "
         "research patterns using the Claim/Evidence/Context schema, stores them in a "
@@ -203,3 +233,5 @@ app.include_router(papers_router)
 app.include_router(paper_patterns_router)
 app.include_router(patterns_router)
 app.include_router(query_router)
+app.include_router(discovery_router)
+app.include_router(research_router)

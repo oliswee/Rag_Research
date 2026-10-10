@@ -71,6 +71,9 @@ export function PaperCard({ paper, onView, onDelete, disabled }: PaperCardProps)
                 {STATUS_LABELS[paper.status]}
               </Badge>
               <Badge variant="outline">{formatPaperType(paper.type)}</Badge>
+              {paper.content_scope === "abstract" && <Badge variant="warning">Abstract only</Badge>}
+              {paper.content_scope === "metadata" && <Badge variant="secondary">Metadata only</Badge>}
+              {paper.import_source && <Badge variant="outline">{paper.import_source === "openalex" ? "OpenAlex" : "Semantic Scholar"}</Badge>}
             </div>
           </div>
 

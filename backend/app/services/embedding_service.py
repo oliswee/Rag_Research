@@ -196,6 +196,15 @@ class EmbeddingService:
 
         return results
 
+    async def generate_text_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed source chunks in bounded requests, preserving order."""
+        vectors = []
+        for offset in range(0, len(texts), BATCH_SIZE):
+            vectors.extend(
+                await self._generate_batch(texts[offset : offset + BATCH_SIZE])
+            )
+        return vectors
+
     async def _generate_batch(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts.
 

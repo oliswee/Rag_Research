@@ -40,6 +40,8 @@ export interface PaperResponse {
   type: PaperType;
   status: PaperStatus;
   pattern_count: number;
+  content_scope?: string | null;
+  import_source?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -178,6 +180,45 @@ export interface QueryResponse {
   sources: SourceReference[];
   confidence: Confidence;
   follow_up_suggestions: string[];
+  evidence?: Evidence[];
+  retrieval_mode?: string | null;
+}
+
+export interface Evidence {
+  paper_id: string;
+  chunk_id: string;
+  title: string;
+  source_url: string | null;
+  content_scope: string;
+  excerpt: string;
+  page_start: number | null;
+  page_end: number | null;
+}
+
+export interface Candidate {
+  provider: "semantic_scholar" | "openalex";
+  provider_id: string;
+  title: string;
+  authors: string[];
+  year: number | null;
+  abstract: string | null;
+  source_url: string | null;
+  pdf_url: string | null;
+  open_access: boolean;
+  doi: string | null;
+  possible_duplicate_ids: string[];
+}
+
+export interface DiscoveryResult { candidates: Candidate[]; errors: string[] }
+export interface ImportJob {
+  job_id: string;
+  status: string;
+  items: { provider: string; provider_id: string; status: string; paper_id: string | null; content_scope: string | null; warning: string | null; error: string | null }[];
+}
+
+export interface CompareResult {
+  papers: { id: string; title: string }[];
+  rows: { label: string; cells: { paper_id: string; text: string; evidence: Evidence[] }[] }[];
 }
 
 // ============================================================================

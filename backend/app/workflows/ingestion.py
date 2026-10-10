@@ -6,7 +6,15 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Paper, PaperStatus, Pattern, PatternStatus
+from app.config import settings
+from app.models import (
+    Paper,
+    PaperChunk,
+    PaperStatus,
+    Pattern,
+    PatternEvidence,
+    PatternStatus,
+)
 from app.schemas.paper import PaperMetadataInput
 from app.schemas.pattern import ExtractedPatternResponse
 from app.services import (
@@ -15,6 +23,7 @@ from app.services import (
     PDFParseError,
     PDFParserService,
 )
+from app.services.source_index import SourceVectorIndex, build_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +133,7 @@ class IngestionWorkflow:
                 logger.info(f"Parsed PDF: {parse_result.page_count} pages")
                 text_content = parse_result.text
                 pdf_metadata = parse_result.metadata
+                source_pages = [(page.text, page.number) for page in parse_result.pages]
             except PDFParseError as e:
                 logger.error(f"PDF parse failed: {e}")
                 return IngestionResult(
@@ -136,6 +146,7 @@ class IngestionWorkflow:
             # Use provided text directly
             text_content = input.text
             pdf_metadata = None
+            source_pages = [(text_content, None)]
             logger.info(f"Using provided text: {len(text_content)} chars")
 
         # Step 2: Extract metadata
@@ -159,6 +170,13 @@ class IngestionWorkflow:
             )
             self.db.add(paper)
             await self.db.flush()  # Get paper.id before creating patterns
+            chunks = []
+            for data in build_chunks(source_pages, "full_text", paper.source):
+                chunk = PaperChunk(paper_id=paper.id, **data)
+                self.db.add(chunk)
+                chunks.append(chunk)
+            await self.db.flush()
+            paper.content_scope = "full_text"
             logger.info(f"Created paper: {paper.id}")
         except Exception as e:
             logger.error(f"Failed to create paper: {e}")
@@ -195,6 +213,22 @@ class IngestionWorkflow:
                 extracted_patterns = await self._create_patterns(
                     paper.id, extraction_result
                 )
+                for pattern in extracted_patterns:
+                    if pattern.evidence:
+                        match = next(
+                            (
+                                chunk
+                                for chunk in chunks
+                                if pattern.evidence.strip() in chunk.text
+                            ),
+                            None,
+                        )
+                        if match:
+                            self.db.add(
+                                PatternEvidence(
+                                    pattern_id=pattern.temp_id, chunk_id=match.id
+                                )
+                            )
                 logger.info(f"Created {len(extracted_patterns)} pattern records")
             except Exception as e:
                 logger.error(f"Failed to create patterns: {e}")
@@ -212,6 +246,32 @@ class IngestionWorkflow:
                 success=False,
                 error=f"Database commit failed: {e}",
             )
+
+        if chunks and settings.openai_api_key:
+            try:
+                from app.services.embedding_service import EmbeddingService
+
+                embedding = EmbeddingService()
+                index = SourceVectorIndex()
+                vectors = await embedding.generate_text_batch(
+                    [chunk.text for chunk in chunks]
+                )
+                index.upsert_many(
+                    [
+                        (
+                            chunk.id,
+                            paper.id,
+                            vector,
+                            paper.published_date.year if paper.published_date else None,
+                            None,
+                        )
+                        for chunk, vector in zip(chunks, vectors, strict=True)
+                    ]
+                )
+            except Exception as e:
+                warnings.append(f"Vector indexing pending: {type(e).__name__}")
+        elif chunks:
+            warnings.append("Vector indexing pending: OPENAI_API_KEY is not configured")
 
         return IngestionResult(
             paper_id=paper.id,

@@ -1,1 +1,1 @@
-"""Research Vault Backend - FastAPI application."""
+"""FolioTrace backend - FastAPI application."""

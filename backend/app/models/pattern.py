@@ -13,6 +13,7 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.paper import Paper
+    from app.models.source import PatternEvidence
 
 
 def _utc_now() -> datetime:
@@ -64,6 +65,9 @@ class Pattern(Base):
 
     # Relationship to paper
     paper: Mapped["Paper"] = relationship(back_populates="patterns")
+    source_evidence: Mapped[list["PatternEvidence"]] = relationship(
+        back_populates="pattern", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_patterns_paper_id", "paper_id"),

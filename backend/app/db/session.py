@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -16,6 +17,16 @@ engine = create_async_engine(
     echo=False,
     future=True,
 )
+
+
+if _database_url.startswith("sqlite+"):
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_foreign_keys(connection, _record):
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
 
 async_session_maker = async_sessionmaker(
     engine,

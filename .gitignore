@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+.next/
+out/
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.coverage
+.pytest_cache/
+.nyc_output/
+htmlcov/
+
+# Local database and vector store
+*.db
+*.sqlite
+*.sqlite3
+data/
+chroma_db/
+vector_store/
+qdrant_data/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Uploaded files (user data)
+uploads/
+papers/
+
+# Claude Code settings (personal dev environment)
+.claude/

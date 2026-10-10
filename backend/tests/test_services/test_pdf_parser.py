@@ -1,7 +1,7 @@
 """Tests for PDF parser service."""
 
-import pytest
 import fitz
+import pytest
 
 from app.services.pdf_parser import PDFParseError, PDFParseResult, PDFParserService
 
@@ -22,6 +22,7 @@ def test_parse_preserves_one_based_page_text():
     ]
     assert "First page evidence" in result.text
     assert "Second page evidence" in result.text
+
 
 # --- Fixtures ---
 

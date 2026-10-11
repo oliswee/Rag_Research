@@ -61,6 +61,10 @@ After adding an OpenAI key to a library created without one, run `uv run python 
 
 Retrieval quality is not yet certified: the spec requires 40 independently labelled queries before hybrid search becomes the default. Run `uv run python -m evaluation.evaluate labels.jsonl --output report.json` from `backend/` after creating that dataset. Add `--judge` and install DeepEval to include Faithfulness scoring. The script also checks citation IDs and reports Recall@10, nDCG@10, and latency for each retrieval mode.
 
+## Australian researcher directory
+
+Use the **Researchers** page to search public OpenAlex author profiles by name, Australian institution, discipline, or topic. It shows latest recorded AU affiliations, recent publications, and coauthors from those publications. OpenAlex author and affiliation matching may be incomplete; verify details at the source.
+
 ## License
 
 This code is distributed under the MIT License. See [LICENSE](LICENSE) for the original copyright notice and license terms.

@@ -21,6 +21,7 @@ from app.routers import (
 )
 from app.routers.discovery import router as discovery_router
 from app.routers.research import router as research_router
+from app.routers.researchers import router as researchers_router
 from app.services.session_manager import session_manager
 from app.services.source_index import SourceVectorIndex
 from app.services.vector_store import VectorStoreService
@@ -235,3 +236,4 @@ app.include_router(patterns_router)
 app.include_router(query_router)
 app.include_router(discovery_router)
 app.include_router(research_router)
+app.include_router(researchers_router)

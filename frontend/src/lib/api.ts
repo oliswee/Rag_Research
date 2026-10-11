@@ -22,6 +22,7 @@ import type {
   ImportJob,
   CompareResult,
 } from "@/types";
+import type { ResearcherProfile, ResearcherSearchResult } from "@/types/researcher";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -293,6 +294,18 @@ export async function discoverPapers(params: { query: string; year_from?: number
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
   return request<DiscoveryResult>(`/api/discovery/search?${query}`);
+}
+
+export async function searchResearchers(params: {
+  name?: string; institution?: string; discipline?: string; topic?: string;
+}): Promise<ResearcherSearchResult> {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, value); });
+  return request<ResearcherSearchResult>(`/api/researchers/search?${query}`);
+}
+
+export async function getResearcher(id: string): Promise<ResearcherProfile> {
+  return request<ResearcherProfile>(`/api/researchers/${encodeURIComponent(id)}`);
 }
 
 export async function startImport(candidates: Candidate[]): Promise<{ job_id: string; status: string; estimated_api_calls: number }> {

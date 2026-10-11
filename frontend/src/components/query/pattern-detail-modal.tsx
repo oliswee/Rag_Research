@@ -25,14 +25,12 @@ export function PatternDetailModal({
   relevanceScore,
   onClose,
 }: PatternDetailModalProps) {
-  const [pattern, setPattern] = useState<PatternDetailResponse | null>(null);
+  const [loadedPattern, setLoadedPattern] = useState<PatternDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!patternId) {
-      setPattern(null);
-      setError(null);
       return;
     }
 
@@ -41,7 +39,7 @@ export function PatternDetailModal({
       setError(null);
       try {
         const data = await getPattern(patternId!);
-        setPattern(data);
+        setLoadedPattern(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load pattern");
       } finally {
@@ -51,6 +49,8 @@ export function PatternDetailModal({
 
     fetchPattern();
   }, [patternId]);
+
+  const pattern = loadedPattern?.id === patternId ? loadedPattern : null;
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {

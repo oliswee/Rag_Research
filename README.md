@@ -21,7 +21,7 @@ The frontend is in `frontend/`; the API and tests are in `backend/`. The API is 
 
 After adding an OpenAI key to a library created without one, run `uv run python -m evaluation.reindex` from `backend/` to rebuild source vectors. Keywords remain searchable while indexing is unavailable.
 
-Retrieval quality is not yet certified: the spec requires 40 independently labelled queries before hybrid search becomes the default. Run `uv run python -m evaluation.evaluate labels.jsonl --output report.json` from `backend/` after creating that dataset. Add `--judge` and install DeepEval to include Faithfulness scoring. The script also checks citation IDs and reports Recall@10, nDCG@10, and latency for each retrieval mode.
+Retrieval quality is not yet certified: hybrid search stays experimental until 40 independently reviewed queries meet the quality gate. See [local evaluation instructions](backend/evaluation/README.md) for exporting excerpts, creating labels, running the benchmark, and optional DeepEval Faithfulness scoring.
 
 ## License
 

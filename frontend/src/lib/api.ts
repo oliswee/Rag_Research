@@ -19,6 +19,7 @@ import type {
   QueryResponse,
   DiscoveryResult,
   Candidate,
+  PaperContextResult,
   ImportJob,
   CompareResult,
 } from "@/types";
@@ -293,6 +294,11 @@ export async function discoverPapers(params: { query: string; year_from?: number
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
   return request<DiscoveryResult>(`/api/discovery/search?${query}`);
+}
+
+export async function getPaperContext(provider: Candidate["provider"], providerId: string): Promise<PaperContextResult> {
+  const query = new URLSearchParams({ provider, provider_id: providerId });
+  return request<PaperContextResult>(`/api/discovery/context?${query}`);
 }
 
 export async function startImport(candidates: Candidate[]): Promise<{ job_id: string; status: string; estimated_api_calls: number }> {

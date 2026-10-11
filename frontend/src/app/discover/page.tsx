@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, BookOpen, Loader2, Search } from "lucide-react";
+import PaperContext from "@/components/discover/paper-context";
 import { discoverPapers, getImport, retryImport, startImport } from "@/lib/api";
 import type { Candidate, DiscoveryResult, ImportJob } from "@/types";
 
@@ -187,6 +188,7 @@ export default function DiscoverPage() {
           {paper.cited_by_results.length > 0 && <p className="mt-3 text-xs text-muted-foreground">Referenced by {paper.cited_by_results.map((related, index) => <span key={related.provider_id}>{index > 0 ? ", " : ""}<a href={`https://openalex.org/${related.provider_id}`} target="_blank" rel="noopener noreferrer" className="underline">{related.title}</a></span>)} in these results.</p>}
           {paper.abstract_summary ? <p className="mt-4 line-clamp-4 text-sm leading-6 text-muted-foreground"><strong>From the abstract:</strong> {paper.abstract_summary}</p> : <p className="mt-4 text-sm text-muted-foreground">No abstract available; summary not provided.</p>}
           <p className="mt-3 text-xs text-muted-foreground">{paper.citation_count == null ? "Citation count unavailable" : `${paper.citation_count} citations reported by source`} · Citation count is one signal, not a quality rating.</p>
+          <PaperContext provider={paper.provider} providerId={paper.provider_id} />
           {paper.possible_duplicate_ids.length > 0 && <p className="mt-3 text-xs text-amber-700">Similar title already in library; adding will check identifiers.</p>}
           <div className="mt-5 flex flex-wrap items-center gap-3"><button onClick={() => void addToLibrary([paper])} disabled={busy || paperSaved} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50"><BookOpen className="h-4 w-4" />{paperSaved ? "In library" : "Add to library"}</button><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.includes(key)} disabled={busy || paperSaved} onChange={() => setSelected((previous) => previous.includes(key) ? previous.filter((value) => value !== key) : [...previous, key])} /> Select for batch</label>{paper.source_url && <a href={paper.source_url} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-sm font-medium underline">Source <ArrowUpRight className="h-4 w-4" /></a>}</div>
         </article>;

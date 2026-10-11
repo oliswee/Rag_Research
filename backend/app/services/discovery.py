@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import xml.etree.ElementTree as ET
 import time
 from urllib.parse import quote
 
@@ -38,6 +39,41 @@ def _openalex_abstract(index: dict | None) -> str | None:
     return " ".join(words) or None
 
 
+
+def pubmed_candidate(article: ET.Element) -> dict:
+    citation = article.find("MedlineCitation")
+    if citation is None or citation.findtext("PMID") is None:
+        raise ValueError("Missing PMID")
+    pmid = citation.findtext("PMID")
+    metadata = citation.find("Article")
+    if metadata is None:
+        raise ValueError("Missing article metadata")
+    node = metadata.find("ArticleTitle")
+    title = " ".join("".join(node.itertext()).split()) if node is not None else "Untitled"
+    abstract_node = metadata.find("Abstract")
+    abstract = " ".join("".join(n.itertext()) for n in abstract_node.findall("AbstractText")) if abstract_node is not None else None
+    authors = []
+    for author in metadata.findall("./AuthorList/Author"):
+        name = " ".join(filter(None, (author.findtext("ForeName"), author.findtext("LastName"))))
+        if name:
+            authors.append(name)
+    year_text = (metadata.findtext("./Journal/JournalIssue/PubDate/Year")
+                 or metadata.findtext("./Journal/JournalIssue/PubDate/MedlineDate")
+                 or citation.findtext("./DateCompleted/Year") or "")
+    match = re.search(r"(?:18|19|20)\d{2}", year_text)
+    ids = {n.get("IdType"): n.text for n in article.findall("./PubmedData/ArticleIdList/ArticleId")}
+    return {
+        "provider": "pubmed", "provider_id": pmid, "title": title,
+        "authors": authors, "year": int(match.group()) if match else None,
+        "abstract": " ".join(abstract.split()) if abstract else None,
+        "source_url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        "pdf_url": None, "open_access": bool(ids.get("pmc")),
+        "doi": normalize_doi(ids.get("doi")), "arxiv_id": None,
+        "tags": [],
+        "tags": [n.text for n in metadata.findall("./PublicationTypeList/PublicationType") if n.text],
+    }
+
+
 def semantic_candidate(record: dict) -> dict:
     ids = record.get("externalIds") or {}
     return {
@@ -52,6 +88,7 @@ def semantic_candidate(record: dict) -> dict:
         "open_access": bool(record.get("isOpenAccess") or record.get("openAccessPdf")),
         "doi": normalize_doi(ids.get("DOI")),
         "arxiv_id": ids.get("ArXiv"),
+        "tags": [],
     }
 
 
@@ -113,69 +150,86 @@ class DiscoveryService:
             return data
         raise RuntimeError("Academic API unavailable")
 
+    async def _pubmed(self, query: str, offset: int, limit: int) -> dict:
+        found = await self._get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            {"db": "pubmed", "term": query, "retmode": "json",
+             "retstart": offset, "retmax": limit, "tool": "FolioTrace"},
+        )
+        result = found.get("esearchresult", {})
+        ids = result.get("idlist", [])
+        if not ids:
+            return {"candidates": [], "total": int(result.get("count", 0))}
+        await asyncio.sleep(0.36)
+        response = await self.client.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+            params={"db": "pubmed", "id": ",".join(ids), "retmode": "xml", "tool": "FolioTrace"},
+        )
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        return {"candidates": [pubmed_candidate(node) for node in root.findall("PubmedArticle")],
+                "total": int(result.get("count", 0))}
+
     async def search(
-        self,
-        query: str,
-        year_from: int | None = None,
-        year_to: int | None = None,
-        open_access: bool = False,
-        limit: int = 20,
+        self, query: str, year_from: int | None = None,
+        year_to: int | None = None, open_access: bool = False,
+        limit: int = 20, offset: int = 0, provider: str | None = None,
     ) -> dict:
-        limit = max(1, min(limit, 20))
-        semantic_params = {
-            "query": query,
-            "limit": limit,
-            "fields": (
-                "paperId,title,authors,year,abstract,url,"
-                "openAccessPdf,isOpenAccess,externalIds"
-            ),
-        }
+        limit = max(1, min(limit, 50))
+        offset = max(0, offset)
+        sources = [provider] if provider else ["semantic_scholar", "openalex", "pubmed"]
+        if any(name not in {"semantic_scholar", "openalex", "pubmed"} for name in sources):
+            raise ValueError("Unsupported provider")
+        sem_params = {"query": query, "limit": limit, "offset": offset,
+                      "fields": "paperId,title,authors,year,abstract,url,openAccessPdf,isOpenAccess,externalIds"}
         if year_from or year_to:
-            semantic_params["year"] = f"{year_from or ''}-{year_to or ''}"
+            sem_params["year"] = f"{year_from or ''}-{year_to or ''}"
         filters = []
-        if year_from or year_to:
-            filters.append(f"from_publication_date:{year_from or 1800}-01-01")
-            if year_to:
-                filters.append(f"to_publication_date:{year_to}-12-31")
+        if year_from:
+            filters.append(f"from_publication_date:{year_from}-01-01")
+        if year_to:
+            filters.append(f"to_publication_date:{year_to}-12-31")
         if open_access:
             filters.append("is_oa:true")
-        openalex_params = {
-            "search": query,
-            "per_page": limit,
-            "select": (
-                "id,display_name,authorships,publication_year,"
-                "abstract_inverted_index,doi,ids,open_access,best_oa_location"
-            ),
-        }
+        oa_params = {"search": query, "per_page": limit, "page": offset // limit + 1,
+                     "select": "id,display_name,authorships,publication_year,abstract_inverted_index,doi,ids,open_access,best_oa_location"}
         if filters:
-            openalex_params["filter"] = ",".join(filters)
-        calls = await asyncio.gather(
-            self._get(
-                "https://api.semanticscholar.org/graph/v1/paper/search", semantic_params
-            ),
-            self._get("https://api.openalex.org/works", openalex_params),
-            return_exceptions=True,
-        )
+            oa_params["filter"] = ",".join(filters)
+        pubmed_query = query
+        if year_from or year_to:
+            pubmed_query += f" AND {year_from or 1800}:{year_to or 2100}[dp]"
+        if open_access:
+            pubmed_query += " AND free full text[sb]"
+        calls = {
+            "semantic_scholar": lambda: self._get("https://api.semanticscholar.org/graph/v1/paper/search", sem_params),
+            "openalex": lambda: self._get("https://api.openalex.org/works", oa_params),
+            "pubmed": lambda: self._pubmed(pubmed_query, offset, limit),
+        }
+        outcomes = await asyncio.gather(*(calls[name]() for name in sources), return_exceptions=True)
         candidates, errors, seen = [], [], set()
-        for name, outcome, key, normalizer in (
-            ("Semantic Scholar", calls[0], "data", semantic_candidate),
-            ("OpenAlex", calls[1], "results", openalex_candidate),
-        ):
+        has_more = False
+        for name, outcome in zip(sources, outcomes, strict=True):
             if isinstance(outcome, BaseException):
                 errors.append(f"{name}: {type(outcome).__name__}")
                 continue
-            for raw in outcome.get(key, []):
-                candidate = normalizer(raw)
+            if name == "pubmed":
+                records, total = outcome["candidates"], outcome["total"]
+            elif name == "semantic_scholar":
+                records, total = outcome.get("data", []), outcome.get("total", 0)
+            else:
+                records, total = outcome.get("results", []), outcome.get("meta", {}).get("count", 0)
+            has_more = has_more or offset + limit < total
+            normalizer = {"semantic_scholar": semantic_candidate, "openalex": openalex_candidate}.get(name)
+            for raw in records:
+                candidate = normalizer(raw) if normalizer else raw
                 if open_access and not candidate["open_access"]:
                     continue
-                identity = candidate["doi"] or (
-                    candidate["provider"],
-                    candidate["provider_id"],
-                )
+                identity = candidate.get("doi") or normalize_title(candidate["title"])
                 if identity not in seen:
                     seen.add(identity)
                     candidates.append(candidate)
-        return {"candidates": candidates[:limit], "errors": errors}
+        return {"candidates": candidates, "errors": errors,
+                "has_more": has_more, "next_offset": offset + limit if has_more else None}
 
     async def get_candidate(self, provider: str, provider_id: str) -> dict:
         if provider == "semantic_scholar":
@@ -197,4 +251,16 @@ class DiscoveryService:
                 raise ValueError("Invalid OpenAlex ID")
             raw = await self._get("https://api.openalex.org/works/" + provider_id)
             return openalex_candidate(raw)
+        if provider == "pubmed":
+            if not re.fullmatch(r"\d{1,12}", provider_id):
+                raise ValueError("Invalid PMID")
+            response = await self.client.get(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                params={"db": "pubmed", "id": provider_id, "retmode": "xml", "tool": "FolioTrace"},
+            )
+            response.raise_for_status()
+            article = ET.fromstring(response.content).find("PubmedArticle")
+            if article is None:
+                raise ValueError("PubMed record not found")
+            return pubmed_candidate(article)
         raise ValueError("Unsupported provider")

@@ -28,14 +28,16 @@ async def search_papers(
     year_from: int | None = Query(None, ge=1800, le=2100),
     year_to: int | None = Query(None, ge=1800, le=2100),
     open_access: bool = False,
-    limit: int = Query(20, ge=1, le=20),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0, le=9000),
+    provider: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     if year_from and year_to and year_from > year_to:
         raise HTTPException(422, "year_from must not exceed year_to")
     service = DiscoveryService()
     try:
-        result = await service.search(query, year_from, year_to, open_access, limit)
+        result = await service.search(query, year_from, year_to, open_access, limit, offset, provider)
     finally:
         await service.close()
     # Title similarity is advisory; only identifiers cause automatic merging.
@@ -57,7 +59,7 @@ async def start_import(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     if any(
-        ref.provider not in {"semantic_scholar", "openalex"}
+        ref.provider not in {"semantic_scholar", "openalex", "pubmed"}
         for ref in request.candidates
     ):
         raise HTTPException(422, "Unsupported provider")

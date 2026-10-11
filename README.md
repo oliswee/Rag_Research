@@ -7,6 +7,7 @@ A local research assistant for discovering papers and tracing answers to source 
 ## Current features
 
 - Discover papers through Semantic Scholar and OpenAlex (up to 20 results per search).
+- Search the Australian researcher directory by name, institution, discipline or topic. The directory reads public OpenAlex profiles on demand and shows latest recorded AU affiliations, recent publications and coauthors from those publications. OpenAlex author and affiliation matching may be incomplete; verify details at the source.
 - Select papers to import in the background. Open PDFs are parsed by page; unavailable PDFs fall back to abstracts or metadata. DOI, arXiv and provider IDs prevent duplicate imports. The library has no fixed paper count limit.
 - Upload PDFs or paste text, and review generated claims where API keys are available.
 - Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix.

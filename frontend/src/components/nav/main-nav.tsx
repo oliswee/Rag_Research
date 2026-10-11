@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getHealth } from "@/lib/api";
-import { BookOpen, Columns3, Compass, Library, Moon, Search, Sun, Upload } from "lucide-react";
+import { BookOpen, Columns3, Compass, Library, Moon, Search, Sun, Upload, Users } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -11,6 +11,7 @@ import { useEffect, useSyncExternalStore, useState } from "react";
 
 const NAV_ITEMS = [
   { href: "/discover", label: "Discover", icon: Compass },
+  { href: "/researchers", label: "Researchers", icon: Users },
   { href: "/upload", label: "Upload", icon: Upload },
   { href: "/library", label: "Library", icon: Library },
   { href: "/query", label: "Query", icon: Search },

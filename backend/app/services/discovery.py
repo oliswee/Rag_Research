@@ -1,8 +1,10 @@
 """Normalized paper discovery from Semantic Scholar and OpenAlex."""
 
 import asyncio
+import math
 import re
 import time
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 import httpx
@@ -38,6 +40,42 @@ def _openalex_abstract(index: dict | None) -> str | None:
     return " ".join(words) or None
 
 
+def _abstract_summary(abstract: str | None) -> str | None:
+    """Use only sentences present in the provider abstract; never invent findings."""
+    if not abstract:
+        return None
+    sentences = re.split(r"(?<=[.!?])\s+", abstract.strip())
+    return " ".join(sentences[:2])[:480] or None
+
+
+def _tags(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value.strip() for value in values if value.strip()))[:5]
+
+
+def _provider_error(name: str, error: BaseException) -> str:
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        if status == 429:
+            return f"{name}: 429 rate limit reached; retry later or add an API key"
+        return f"{name}: HTTP {status} from the provider"
+    if isinstance(error, httpx.TimeoutException):
+        return f"{name}: request timed out"
+    if isinstance(error, httpx.RequestError):
+        return f"{name}: network request failed"
+    return f"{name}: provider response could not be processed"
+
+
+def _explain_relevance(candidate: dict, query: str) -> str:
+    words = set(re.findall(r"[\w-]{3,}", query.casefold()))
+    evidence = " ".join(
+        [candidate["title"], candidate.get("abstract") or "", *candidate["tags"]]
+    ).casefold()
+    matched = [word for word in words if word in evidence]
+    if matched:
+        return "Matches topic terms: " + ", ".join(sorted(matched)[:4]) + "."
+    return "Returned by the academic source; inspect the abstract for relevance."
+
+
 def semantic_candidate(record: dict) -> dict:
     ids = record.get("externalIds") or {}
     return {
@@ -52,6 +90,9 @@ def semantic_candidate(record: dict) -> dict:
         "open_access": bool(record.get("isOpenAccess") or record.get("openAccessPdf")),
         "doi": normalize_doi(ids.get("DOI")),
         "arxiv_id": ids.get("ArXiv"),
+        "citation_count": record.get("citationCount"),
+        "tags": _tags(record.get("fieldsOfStudy") or []),
+        "abstract_summary": _abstract_summary(record.get("abstract")),
     }
 
 
@@ -73,6 +114,19 @@ def openalex_candidate(record: dict) -> dict:
         "open_access": bool((record.get("open_access") or {}).get("is_oa")),
         "doi": normalize_doi(record.get("doi")),
         "arxiv_id": None,
+        "citation_count": record.get("cited_by_count"),
+        "tags": _tags(
+            [
+                (record.get("primary_topic") or {}).get("display_name") or "",
+                *[
+                    keyword.get("display_name") or ""
+                    for keyword in record.get("keywords") or []
+                ],
+            ]
+        ),
+        "abstract_summary": _abstract_summary(
+            _openalex_abstract(record.get("abstract_inverted_index"))
+        ),
     }
 
 
@@ -127,7 +181,7 @@ class DiscoveryService:
             "limit": limit,
             "fields": (
                 "paperId,title,authors,year,abstract,url,"
-                "openAccessPdf,isOpenAccess,externalIds"
+                "openAccessPdf,isOpenAccess,externalIds,citationCount,fieldsOfStudy"
             ),
         }
         if year_from or year_to:
@@ -144,7 +198,8 @@ class DiscoveryService:
             "per_page": limit,
             "select": (
                 "id,display_name,authorships,publication_year,"
-                "abstract_inverted_index,doi,ids,open_access,best_oa_location"
+                "abstract_inverted_index,doi,ids,open_access,best_oa_location,"
+                "cited_by_count,primary_topic,keywords"
             ),
         }
         if filters:
@@ -156,26 +211,41 @@ class DiscoveryService:
             self._get("https://api.openalex.org/works", openalex_params),
             return_exceptions=True,
         )
-        candidates, errors, seen = [], [], set()
+        ranked, errors = [], []
         for name, outcome, key, normalizer in (
             ("Semantic Scholar", calls[0], "data", semantic_candidate),
             ("OpenAlex", calls[1], "results", openalex_candidate),
         ):
             if isinstance(outcome, BaseException):
-                errors.append(f"{name}: {type(outcome).__name__}")
+                errors.append(_provider_error(name, outcome))
                 continue
-            for raw in outcome.get(key, []):
+            for rank, raw in enumerate(outcome.get(key, [])):
                 candidate = normalizer(raw)
                 if open_access and not candidate["open_access"]:
                     continue
-                identity = candidate["doi"] or (
-                    candidate["provider"],
-                    candidate["provider_id"],
+                candidate["relevance_reason"] = _explain_relevance(candidate, query)
+                citations = max(0, candidate.get("citation_count") or 0)
+                age = max(0, datetime.now(UTC).year - (candidate.get("year") or 1800))
+                # Provider rank drives relevance; other signals break ties.
+                candidate["rank_score"] = round(
+                    1 / (rank + 1)
+                    + 0.01 * min(math.log1p(citations), 8)
+                    + 0.02 / (age + 1),
+                    4,
                 )
-                if identity not in seen:
-                    seen.add(identity)
-                    candidates.append(candidate)
-        return {"candidates": candidates[:limit], "errors": errors}
+                ranked.append((rank, candidate))
+        # Interleave provider rankings before truncation so both sources remain visible.
+        ranked.sort(key=lambda pair: (pair[0], -pair[1]["rank_score"]))
+        by_identity = {}
+        for _, candidate in ranked:
+            identity = candidate["doi"] or (
+                candidate["provider"],
+                candidate["provider_id"],
+            )
+            previous = by_identity.get(identity)
+            if previous is None or candidate["provider"] == "openalex":
+                by_identity[identity] = candidate
+        return {"candidates": list(by_identity.values())[:limit], "errors": errors}
 
     async def get_candidate(self, provider: str, provider_id: str) -> dict:
         if provider == "semantic_scholar":
@@ -187,7 +257,7 @@ class DiscoveryService:
                 {
                     "fields": (
                         "paperId,title,authors,year,abstract,url,"
-                        "openAccessPdf,isOpenAccess,externalIds"
+                        "openAccessPdf,isOpenAccess,externalIds,citationCount,fieldsOfStudy"
                     )
                 },
             )

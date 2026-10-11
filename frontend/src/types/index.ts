@@ -208,6 +208,11 @@ export interface Candidate {
   pdf_url: string | null;
   open_access: boolean;
   doi: string | null;
+  citation_count: number | null;
+  tags: string[];
+  abstract_summary: string | null;
+  relevance_reason: string;
+  rank_score: number;
   possible_duplicate_ids: string[];
 }
 

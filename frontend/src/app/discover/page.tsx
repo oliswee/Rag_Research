@@ -7,6 +7,7 @@ import { discoverPapers, getImport, retryImport, startImport } from "@/lib/api";
 import type { Candidate, DiscoveryResult, ImportJob } from "@/types";
 
 const sourceNames = { openalex: "OpenAlex", semantic_scholar: "Semantic Scholar", pubmed: "PubMed" };
+const topicKey = (tag: string) => tag.trim().toLocaleLowerCase();
 
 function paperIdentity(paper: Candidate) {
   return paper.doi ? `doi:${paper.doi.toLowerCase()}` : `${paper.provider}:${paper.provider_id}`;
@@ -117,8 +118,9 @@ export default function DiscoverPage() {
   }
 
   function toggleTag(tag: string) {
+    const key = topicKey(tag);
     setSelected([]);
-    setSelectedTags((previous) => previous.includes(tag) ? previous.filter((value) => value !== tag) : [...previous, tag]);
+    setSelectedTags((previous) => previous.includes(key) ? previous.filter((value) => value !== key) : [...previous, key]);
   }
 
   async function addToLibrary(papers: Candidate[]) {
@@ -137,10 +139,14 @@ export default function DiscoverPage() {
 
   const busy = saving || job?.status === "queued" || job?.status === "running";
   const saved = new Set(savedKeys);
-  const tagCounts = new Map<string, number>();
-  candidates.forEach((paper) => paper.tags.forEach((tag) => tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)));
-  const availableTags = [...tagCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  const visibleCandidates = selectedTags.length === 0 ? candidates : candidates.filter((paper) => paper.tags.some((tag) => selectedTags.includes(tag)));
+  const tagCounts = new Map<string, { label: string; count: number }>();
+  candidates.forEach((paper) => paper.tags.forEach((tag) => {
+    const key = topicKey(tag);
+    const previous = tagCounts.get(key);
+    tagCounts.set(key, { label: previous?.label || tag, count: (previous?.count || 0) + 1 });
+  }));
+  const availableTags = [...tagCounts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const visibleCandidates = selectedTags.length === 0 ? candidates : candidates.filter((paper) => paper.tags.some((tag) => selectedTags.includes(topicKey(tag))));
 
   return <main className="mx-auto max-w-6xl px-4 py-10 md:py-16">
     <header className="mb-10 max-w-3xl">
@@ -172,7 +178,7 @@ export default function DiscoverPage() {
       <h2 className="text-2xl font-semibold">Search results</h2>
       <p className="mb-5 text-sm text-muted-foreground">Showing {visibleCandidates.length} of {candidates.length} loaded papers · add any paper to your library</p>
       {themes.length > 0 && <div className="mb-5 flex flex-wrap items-center gap-2 text-sm"><strong>Related themes:</strong>{themes.map((theme) => <span key={theme.label} className="rounded-full border px-3 py-1">{theme.label} · {theme.count}</span>)}</div>}
-      {availableTags.length > 0 && <div className="mb-5 rounded-xl border bg-card p-4"><div className="mb-3 flex items-center justify-between gap-3"><strong className="text-sm">Filter by source topics</strong>{selectedTags.length > 0 && <button onClick={() => setSelectedTags([])} className="text-sm underline">Clear filters</button>}</div><div className="flex flex-wrap gap-2">{availableTags.slice(0, showAllTags ? undefined : 12).map(([tag, count]) => <button key={tag} type="button" aria-label={`Filter by ${tag}`} aria-pressed={selectedTags.includes(tag)} onClick={() => toggleTag(tag)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(tag) ? "border-emerald-700 bg-emerald-700 text-white" : "hover:border-emerald-700"}`}>{tag} · {count}</button>)}{availableTags.length > 12 && <button onClick={() => setShowAllTags((value) => !value)} className="text-xs underline">{showAllTags ? "Show fewer topics" : `Show all ${availableTags.length} topics`}</button>}</div><p className="mt-3 text-xs text-muted-foreground">Selected topics filter the papers loaded so far. Select multiple topics to show papers matching any of them.</p></div>}
+      {availableTags.length > 0 && <div className="mb-5 rounded-xl border bg-card p-4"><div className="mb-3 flex items-center justify-between gap-3"><strong className="text-sm">Filter by source topics</strong>{selectedTags.length > 0 && <button onClick={() => setSelectedTags([])} className="text-sm underline">Clear filters</button>}</div><div className="flex flex-wrap gap-2">{availableTags.slice(0, showAllTags ? undefined : 12).map(({ label, count }) => <button key={topicKey(label)} type="button" aria-label={`Filter by ${label}`} aria-pressed={selectedTags.includes(topicKey(label))} onClick={() => toggleTag(label)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(topicKey(label)) ? "border-emerald-700 bg-emerald-700 text-white" : "hover:border-emerald-700"}`}>{label} · {count}</button>)}{availableTags.length > 12 && <button onClick={() => setShowAllTags((value) => !value)} className="text-xs underline">{showAllTags ? "Show fewer topics" : `Show all ${availableTags.length} topics`}</button>}</div><p className="mt-3 text-xs text-muted-foreground">Selected topics filter the papers loaded so far. Select multiple topics to show papers matching any of them.</p></div>}
       <p className="mb-5 text-xs text-muted-foreground">Recency, citation, and potential foundation labels describe these search results; they do not rate research quality.</p>
       {selected.length > 0 && <button onClick={() => void addToLibrary(candidates.filter((paper) => selected.includes(`${paper.provider}:${paper.provider_id}`)))} disabled={busy} className="mb-5 rounded-lg bg-foreground px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50">Add {selected.length} selected to library</button>}
       <div className="grid gap-4 md:grid-cols-2">{visibleCandidates.map((paper) => {
@@ -184,7 +190,7 @@ export default function DiscoverPage() {
           <p className="mt-2 text-sm text-muted-foreground">{paper.authors.slice(0, 3).join(", ")}{paper.authors.length > 3 ? " et al." : ""}</p>
           <p className="mt-3 text-sm"><strong>Why shown:</strong> {paper.relevance_reason}</p>
           {paper.role_labels.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Result signals">{paper.role_labels.map((label) => <span key={label} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-900">{label}</span>)}</div>}
-          {paper.tags.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Source topics">{paper.tags.map((tag) => <button key={tag} type="button" aria-label={`Filter by ${tag}`} aria-pressed={selectedTags.includes(tag)} onClick={() => toggleTag(tag)} className={`rounded-full px-2 py-1 text-xs ${selectedTags.includes(tag) ? "bg-emerald-700 text-white" : "bg-muted hover:bg-emerald-100"}`}>{tag}</button>)}</div>}
+          {paper.tags.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Source topics">{paper.tags.map((tag) => <button key={tag} type="button" aria-label={`Filter by ${tag}`} aria-pressed={selectedTags.includes(topicKey(tag))} onClick={() => toggleTag(tag)} className={`rounded-full px-2 py-1 text-xs ${selectedTags.includes(topicKey(tag)) ? "bg-emerald-700 text-white" : "bg-muted hover:bg-emerald-100"}`}>{tag}</button>)}</div>}
           {paper.cited_by_results.length > 0 && <p className="mt-3 text-xs text-muted-foreground">Referenced by {paper.cited_by_results.map((related, index) => <span key={related.provider_id}>{index > 0 ? ", " : ""}<a href={`https://openalex.org/${related.provider_id}`} target="_blank" rel="noopener noreferrer" className="underline">{related.title}</a></span>)} in these results.</p>}
           {paper.abstract_summary ? <p className="mt-4 line-clamp-4 text-sm leading-6 text-muted-foreground"><strong>From the abstract:</strong> {paper.abstract_summary}</p> : <p className="mt-4 text-sm text-muted-foreground">No abstract available; summary not provided.</p>}
           <p className="mt-3 text-xs text-muted-foreground">{paper.citation_count == null ? "Citation count unavailable" : `${paper.citation_count} citations reported by source`} · Citation count is one signal, not a quality rating.</p>

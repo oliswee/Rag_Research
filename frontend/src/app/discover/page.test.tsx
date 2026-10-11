@@ -91,3 +91,25 @@ it("loads the next batch without duplicating papers and filters by a selected ta
   expect(screen.queryByText("First paper")).not.toBeInTheDocument();
   expect(screen.getByText("Second paper")).toBeInTheDocument();
 });
+
+it("combines topic filters that differ only by case", async () => {
+  const paper = {
+    provider: "openalex" as const, provider_id: "W1", title: "First genetics paper",
+    authors: [], year: 2024, abstract: null, abstract_summary: null,
+    source_url: null, pdf_url: null, open_access: false, doi: null,
+    citation_count: null, tags: ["Genetics"], relevance_reason: "Source result.",
+    rank_score: 1, possible_duplicate_ids: [], role_labels: [], cited_by_results: [],
+  };
+  vi.mocked(discoverPapers).mockResolvedValueOnce({
+    candidates: [paper, { ...paper, provider_id: "W2", title: "Second genetics paper", tags: ["genetics"] }],
+    errors: [], themes: [], has_more: false,
+    next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 0 },
+  });
+  render(<DiscoverPage />);
+  fireEvent.change(screen.getByLabelText("Research topic or question"), { target: { value: "genetics" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search papers" }));
+  await screen.findByText("First genetics paper");
+  expect(screen.getByText("Genetics · 2")).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole("button", { name: "Filter by Genetics" })[0]);
+  expect(screen.getByText("Second genetics paper")).toBeInTheDocument();
+});

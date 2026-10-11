@@ -23,8 +23,6 @@ export default function QueryPage() {
   const [papers, setPapers] = useState<PaperResponse[]>([]);
   const [paperFilter, setPaperFilter] = useState("");
   const [selectedPapers, setSelectedPapers] = useState<string[]>([]);
-  const [mode, setMode] = useState<"dense" | "bm25" | "hybrid">("dense");
-  const [rewriteQuery, setRewriteQuery] = useState(false);
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
   const [provider, setProvider] = useState<"" | "openalex" | "semantic_scholar">("");
@@ -51,8 +49,6 @@ export default function QueryPage() {
 
       try {
         const response = await submitQuery(query, sessionId || undefined, {
-          retrieval_mode: mode,
-          rewrite_query: rewriteQuery,
           paper_ids: selectedPapers.length ? selectedPapers : undefined,
           year_from: yearFrom ? Number(yearFrom) : undefined,
           year_to: yearTo ? Number(yearTo) : undefined,
@@ -84,7 +80,7 @@ export default function QueryPage() {
         setLoading(false);
       }
     },
-    [sessionId, mode, rewriteQuery, selectedPapers, yearFrom, yearTo, provider]
+    [sessionId, selectedPapers, yearFrom, yearTo, provider]
   );
 
   // Handle follow-up suggestion click
@@ -150,21 +146,7 @@ export default function QueryPage() {
 
         {/* Input */}
         <div className="mt-4 border-t pt-4">
-          <details className="mb-4 rounded-lg border bg-card p-3 text-sm"><summary className="cursor-pointer font-medium">Search scope and retrieval</summary><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="grid gap-1">Mode<select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)} className="rounded-md border bg-background p-2"><option value="dense">Dense (default)</option><option value="bm25">Keyword</option><option value="hybrid">Hybrid · experimental</option></select></label><label className="grid gap-1">Source<select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)} className="rounded-md border bg-background p-2"><option value="">All sources</option><option value="semantic_scholar">Semantic Scholar</option><option value="openalex">OpenAlex</option></select></label><label className="grid gap-1">From year<input type="number" value={yearFrom} onChange={(event) => setYearFrom(event.target.value)} className="rounded-md border bg-background p-2" /></label><label className="grid gap-1">To year<input type="number" value={yearTo} onChange={(event) => setYearTo(event.target.value)} className="rounded-md border bg-background p-2" /></label></div>{papers.length > 0 && <div className="mt-4"><p className="mb-2 font-medium">Papers · leave unselected to search the whole library</p><input value={paperFilter} onChange={(event) => setPaperFilter(event.target.value)} placeholder="Find a paper" className="mb-2 w-full rounded-md border bg-background p-2" /><div className="max-h-32 space-y-1 overflow-y-auto">{papers.filter((paper) => paper.title.toLowerCase().includes(paperFilter.toLowerCase())).slice(0, 100).map((paper) => <label key={paper.id} className="flex items-center gap-2"><input type="checkbox" checked={selectedPapers.includes(paper.id)} onChange={() => setSelectedPapers((prev) => prev.includes(paper.id) ? prev.filter((id) => id !== paper.id) : [...prev, paper.id])} />{paper.title}</label>)}</div></div>}</details>
-          <label className="mb-4 flex items-start gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={rewriteQuery}
-              onChange={(event) => setRewriteQuery(event.target.checked)}
-              className="mt-1"
-            />
-            <span>
-              <span className="block font-medium">Rewrite query with AI</span>
-              <span className="text-muted-foreground">
-                Uses your Anthropic API key to clarify search terms and follow-up questions.
-              </span>
-            </span>
-          </label>
+          <details className="mb-4 rounded-lg border bg-card p-3 text-sm"><summary className="cursor-pointer font-medium">Search filters</summary><div className="mt-4 grid gap-3 sm:grid-cols-3"><label className="grid gap-1">Source<select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)} className="rounded-md border bg-background p-2"><option value="">All sources</option><option value="semantic_scholar">Semantic Scholar</option><option value="openalex">OpenAlex</option></select></label><label className="grid gap-1">From year<input type="number" value={yearFrom} onChange={(event) => setYearFrom(event.target.value)} className="rounded-md border bg-background p-2" /></label><label className="grid gap-1">To year<input type="number" value={yearTo} onChange={(event) => setYearTo(event.target.value)} className="rounded-md border bg-background p-2" /></label></div>{papers.length > 0 && <div className="mt-4"><p className="mb-2 font-medium">Papers · leave unselected to search the whole library</p><input value={paperFilter} onChange={(event) => setPaperFilter(event.target.value)} placeholder="Find a paper" className="mb-2 w-full rounded-md border bg-background p-2" /><div className="max-h-32 space-y-1 overflow-y-auto">{papers.filter((paper) => paper.title.toLowerCase().includes(paperFilter.toLowerCase())).slice(0, 100).map((paper) => <label key={paper.id} className="flex items-center gap-2"><input type="checkbox" checked={selectedPapers.includes(paper.id)} onChange={() => setSelectedPapers((prev) => prev.includes(paper.id) ? prev.filter((id) => id !== paper.id) : [...prev, paper.id])} />{paper.title}</label>)}</div></div>}</details>
           <SearchInput
             onSubmit={handleSubmit}
             loading={loading}

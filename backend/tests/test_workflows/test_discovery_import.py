@@ -49,3 +49,25 @@ async def test_abstract_import_and_duplicate(async_db_session):
     assert duplicate.status == "duplicate"
     assert duplicate.paper_id == first.paper_id
     assert (await db.execute(select(func.count(Paper.id)))).scalar() == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_error_does_not_expose_request_credentials(
+    async_db_session, caplog
+):
+    class FailingDiscovery:
+        async def get_candidate(self, provider, provider_id):
+            raise RuntimeError("api_key=private-value")
+
+    job = ImportJob()
+    async_db_session.add(job)
+    await async_db_session.flush()
+    item = ImportItem(
+        job_id=job.id, provider="pubmed", provider_id="12345", candidate={}
+    )
+    async_db_session.add(item)
+    await async_db_session.flush()
+    await import_one(async_db_session, item, FailingDiscovery())
+    assert item.status == "failed"
+    assert item.error == "Import failed: RuntimeError"
+    assert "private-value" not in caplog.text

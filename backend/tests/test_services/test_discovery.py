@@ -58,6 +58,7 @@ def _openalex(
 @pytest.mark.asyncio
 async def test_search_balances_providers_and_includes_grounded_insights():
     service = DiscoveryService()
+    service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(
         side_effect=[
             {"data": [_semantic("s1"), _semantic("s2"), _semantic("s3")]},
@@ -87,6 +88,7 @@ async def test_search_explains_rate_limit_and_keeps_other_source():
         ),
     )
     service = DiscoveryService()
+    service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(
         side_effect=[
             httpx.HTTPStatusError(
@@ -108,6 +110,7 @@ async def test_search_explains_rate_limit_and_keeps_other_source():
 @pytest.mark.asyncio
 async def test_duplicate_doi_prefers_openalex_for_reliable_import():
     service = DiscoveryService()
+    service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(
         side_effect=[
             {"data": [_semantic("s1", "10.1234/shared")]},
@@ -131,6 +134,7 @@ async def test_result_relationships_and_source_based_roles():
     recent = _openalex("W2", references=["W1"])
     recent["publication_year"] = 2026
     service = DiscoveryService()
+    service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(side_effect=[{"data": []}, {"results": [older, recent]}])
     try:
         result = await service.search("retrieval accuracy")
@@ -143,3 +147,52 @@ async def test_result_relationships_and_source_based_roles():
     assert "Potential foundation" in by_id["W1"]["role_labels"]
     assert "Recent" in by_id["W2"]["role_labels"]
     assert result["themes"] == [{"label": "Information Retrieval", "count": 2}]
+
+
+@pytest.mark.asyncio
+async def test_load_more_cursor_keeps_unconsumed_pubmed_results():
+    service = DiscoveryService()
+    pubmed = {
+        "provider": "pubmed",
+        "provider_id": "12345",
+        "title": "PubMed retrieval",
+        "authors": [],
+        "year": 2024,
+        "abstract": "A retrieval study.",
+        "source_url": "https://pubmed.ncbi.nlm.nih.gov/12345/",
+        "pdf_url": None,
+        "open_access": False,
+        "doi": None,
+        "citation_count": None,
+        "tags": ["Information Retrieval"],
+    }
+    service._get = AsyncMock(
+        side_effect=[
+            {"data": [_semantic("s1"), _semantic("s2")], "total": 3},
+            {"results": [_openalex("W1"), _openalex("W2")], "meta": {"count": 3}},
+            {"data": [_semantic("s2")], "total": 3},
+            {"results": [_openalex("W1"), _openalex("W2")], "meta": {"count": 3}},
+        ]
+    )
+    service._search_pubmed = AsyncMock(
+        return_value={
+            "results": [pubmed],
+            "total": 1,
+            "fetched_count": 1,
+        }
+    )
+    try:
+        first = await service.search("retrieval", limit=2)
+        second = await service.search(
+            "retrieval", limit=2, offsets=first["next_offsets"]
+        )
+    finally:
+        await service.close()
+    assert len(first["candidates"]) == 2
+    assert first["has_more"] is True
+    assert first["next_offsets"]["pubmed"] == 0
+    assert any(paper["provider"] == "pubmed" for paper in second["candidates"])
+    assert (
+        service._get.call_args_list[2].args[1]["offset"]
+        == first["next_offsets"]["semantic_scholar"]
+    )

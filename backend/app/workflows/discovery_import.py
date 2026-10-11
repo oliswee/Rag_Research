@@ -162,9 +162,9 @@ async def import_one(
         await db.rollback()
         item = await db.get(ImportItem, item.id)
         item.status = "failed"
-        item.error = f"{type(exc).__name__}: {exc}"[:1000]
+        item.error = f"Import failed: {type(exc).__name__}"
         await db.commit()
-        logger.exception("Import failed for %s", item.provider_id)
+        logger.error("Import failed for %s (%s)", item.provider_id, type(exc).__name__)
 
 
 async def process_job(job_id: str) -> None:

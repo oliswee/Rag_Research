@@ -6,7 +6,7 @@ A local research assistant for discovering papers and tracing answers to source 
 
 ## Current features
 
-- Discover papers through Semantic Scholar and OpenAlex (up to 20 results per search). Results mix both providers when available and show provider topics, source-based abstract extracts, related themes, citation counts, and a topic-match explanation. OpenAlex references connect papers within the visible result set. Recent, highly cited, and potential foundation labels are relative signals, not quality ratings. A provider rate limit leaves the other provider's results visible.
+- Discover papers through Semantic Scholar, OpenAlex, and PubMed. Search shows up to 20 papers at a time; **Load more papers** fetches the next set from each source without a fixed library limit. PubMed adds biomedical records and MeSH or source keywords. Select topic chips to filter the papers already loaded (multiple selections match any topic). Results show source-based abstract extracts, related themes, citation counts where available, and a topic-match explanation. OpenAlex references connect papers within the visible result set. Recent, highly cited, and potential foundation labels are relative signals, not quality ratings. A provider rate limit leaves other sources' results visible.
 - Click **Add to library** on one result or select several for a batch import. Open PDFs are parsed by page; unavailable PDFs fall back to abstracts or metadata. DOI, arXiv and provider IDs prevent duplicate imports. The library has no fixed paper count limit.
 - Upload PDFs or paste text, and review generated claims where API keys are available.
 - Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix.
@@ -25,7 +25,7 @@ if (!(Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env }
 New-Item -ItemType Directory -Force backend/data | Out-Null
 ```
 
-Add keys to `backend/.env` when needed. `ANTHROPIC_API_KEY` enables generated answers and claim extraction; `OPENAI_API_KEY` enables dense indexing and search. Paper discovery and SQLite keyword search work without either key. `SEMANTIC_SCHOLAR_API_KEY` is optional. Environment files are ignored by Git.
+Add keys to `backend/.env` when needed. `ANTHROPIC_API_KEY` enables generated answers and claim extraction; `OPENAI_API_KEY` enables dense indexing and search. Paper discovery and SQLite keyword search work without either key. `SEMANTIC_SCHOLAR_API_KEY` and `NCBI_API_KEY` are optional; `NCBI_EMAIL` can identify your NCBI requests. Environment files are ignored by Git. PubMed abstracts are imported as abstracts; a PubMed or PubMed Central link alone does not provide a PDF to this app. [NCBI E-utilities guidance](https://www.ncbi.nlm.nih.gov/books/NBK25497/) describes its request limits and [NCBI's disclaimer](https://www.ncbi.nlm.nih.gov/About/disclaimer.html) applies to PubMed data.
 
 Start the API in one terminal:
 

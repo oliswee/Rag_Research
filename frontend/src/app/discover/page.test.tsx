@@ -39,7 +39,7 @@ it("explains a provider outage and sends one chosen paper to the library", async
   await screen.findByText("Retrieval paper");
   expect(screen.getByText(/429 rate limit reached/)).toBeInTheDocument();
   expect(screen.getAllByText("Information Retrieval")).toHaveLength(2);
-  expect(screen.getByText("Related themes:")).toBeInTheDocument();
+  expect(screen.queryByText("Related themes:")).not.toBeInTheDocument();
   expect(screen.getAllByText("Recent")).toHaveLength(2);
   fireEvent.click(screen.getAllByRole("button", { name: "Add to library" })[0]);
   await waitFor(() => expect(startImport).toHaveBeenCalledWith([

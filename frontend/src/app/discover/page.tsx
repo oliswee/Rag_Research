@@ -29,7 +29,6 @@ export default function DiscoverPage() {
   const [yearTo, setYearTo] = useState("");
   const [openOnly, setOpenOnly] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [themes, setThemes] = useState<{ label: string; count: number }[]>([]);
   const [activeSearch, setActiveSearch] = useState<Parameters<typeof discoverPapers>[0] | null>(null);
   const [offsets, setOffsets] = useState<DiscoveryResult["next_offsets"]>({ semantic_scholar: 0, openalex: 0, pubmed: 0 });
   const [hasMore, setHasMore] = useState(false);
@@ -77,7 +76,6 @@ export default function DiscoverPage() {
       };
       const result = await discoverPapers(params);
       setCandidates(result.candidates);
-      setThemes(result.themes);
       setWarnings(result.errors);
       setActiveSearch(params);
       setOffsets(result.next_offsets);
@@ -102,11 +100,6 @@ export default function DiscoverPage() {
       });
       const combined = appendUnique(candidates, result.candidates);
       setCandidates(combined);
-      const counts = new Map<string, number>();
-      combined.forEach((paper) => {
-        if (paper.tags[0]) counts.set(paper.tags[0], (counts.get(paper.tags[0]) || 0) + 1);
-      });
-      setThemes([...counts].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, count]) => ({ label, count })));
       setOffsets(result.next_offsets);
       setHasMore(result.has_more);
       setWarnings((previous) => [...new Set([...previous, ...result.errors])]);
@@ -177,7 +170,6 @@ export default function DiscoverPage() {
     {candidates.length > 0 && <section className="mt-10">
       <h2 className="text-2xl font-semibold">Search results</h2>
       <p className="mb-5 text-sm text-muted-foreground">Showing {visibleCandidates.length} of {candidates.length} loaded papers · add any paper to your library</p>
-      {themes.length > 0 && <div className="mb-5 flex flex-wrap items-center gap-2 text-sm"><strong>Related themes:</strong>{themes.map((theme) => <span key={theme.label} className="rounded-full border px-3 py-1">{theme.label} · {theme.count}</span>)}</div>}
       {availableTags.length > 0 && <div className="mb-5 rounded-xl border bg-card p-4"><div className="mb-3 flex items-center justify-between gap-3"><strong className="text-sm">Filter by source topics</strong>{selectedTags.length > 0 && <button onClick={() => setSelectedTags([])} className="text-sm underline">Clear filters</button>}</div><div className="flex flex-wrap gap-2">{availableTags.slice(0, showAllTags ? undefined : 12).map(({ label, count }) => <button key={topicKey(label)} type="button" aria-label={`Filter by ${label}`} aria-pressed={selectedTags.includes(topicKey(label))} onClick={() => toggleTag(label)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(topicKey(label)) ? "border-emerald-700 bg-emerald-700 text-white" : "hover:border-emerald-700"}`}>{label} · {count}</button>)}{availableTags.length > 12 && <button onClick={() => setShowAllTags((value) => !value)} className="text-xs underline">{showAllTags ? "Show fewer topics" : `Show all ${availableTags.length} topics`}</button>}</div><p className="mt-3 text-xs text-muted-foreground">Selected topics filter the papers loaded so far. Select multiple topics to show papers matching any of them.</p></div>}
       <p className="mb-5 text-xs text-muted-foreground">Recency, citation, and potential foundation labels describe these search results; they do not rate research quality.</p>
       {selected.length > 0 && <button onClick={() => void addToLibrary(candidates.filter((paper) => selected.includes(`${paper.provider}:${paper.provider_id}`)))} disabled={busy} className="mb-5 rounded-lg bg-foreground px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50">Add {selected.length} selected to library</button>}

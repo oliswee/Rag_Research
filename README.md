@@ -2,6 +2,8 @@
 
 A local research assistant for discovering papers and tracing answers to source excerpts. FolioTrace includes a FastAPI backend, a Next.js frontend, SQLite with FTS5, and Qdrant.
 
+![FolioTrace Discover page running locally](docs/images/foliotrace-discover.png)
+
 ## Current features
 
 - Discover papers through Semantic Scholar and OpenAlex (up to 20 results per search).
@@ -13,11 +15,47 @@ A local research assistant for discovering papers and tracing answers to source 
 
 ## Run locally
 
-1. Copy `.env.example` to `.env`. Add `ANTHROPIC_API_KEY` for generated answers and `OPENAI_API_KEY` for dense indexing/search. Discovery and keyword search work without either key. The `.env` file is ignored by Git.
-2. Start the services with `docker compose up --build`.
-3. Open `http://localhost:3000`.
+### Native app with Qdrant in Docker
 
-The frontend is in `frontend/`; the API and tests are in `backend/`. The API is exposed at `http://localhost:8000`. Docker upgrades SQLite on startup and saves SQLite and Qdrant in local volumes. The local Python backend can be started from `backend/` with `uv run alembic upgrade head` and `uv run uvicorn app.main:app --reload` while Qdrant runs separately.
+Install Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+, and Docker Desktop. From the repository root, run these PowerShell commands:
+
+```powershell
+docker compose up -d qdrant
+if (!(Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env }
+New-Item -ItemType Directory -Force backend/data | Out-Null
+```
+
+Add keys to `backend/.env` when needed. `ANTHROPIC_API_KEY` enables generated answers and claim extraction; `OPENAI_API_KEY` enables dense indexing and search. Paper discovery and SQLite keyword search work without either key. `SEMANTIC_SCHOLAR_API_KEY` is optional. Environment files are ignored by Git.
+
+Start the API in one terminal:
+
+```powershell
+cd backend
+uv sync
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in another terminal, from the repository root:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Open [http://localhost:3000/discover](http://localhost:3000/discover). The header should show a green backend connection indicator. [http://localhost:8000/health](http://localhost:8000/health) reports the SQLite and Qdrant status. Use `localhost` for the frontend: the API currently allows that origin on port 3000.
+
+### All services in Docker
+
+To let Compose build and run the frontend, API, and Qdrant together instead, run this from the repository root:
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up --build
+```
+
+Open [http://localhost:3000/discover](http://localhost:3000/discover). Compose runs SQLite migrations at startup and stores its database and Qdrant data in Docker volumes. This SQLite database is separate from `backend/data/research.db` used by the native API, so papers imported through one setup do not automatically appear in the other.
 
 After adding an OpenAI key to a library created without one, run `uv run python -m evaluation.reindex` from `backend/` to rebuild source vectors. Keywords remain searchable while indexing is unavailable.
 

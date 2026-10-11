@@ -170,7 +170,8 @@ async def main() -> None:
             parser.error("--judge requires ANTHROPIC_API_KEY for answer generation")
         if not (os.getenv("OPENAI_API_KEY") or settings.openai_api_key):
             parser.error("--judge requires OPENAI_API_KEY for the DeepEval judge")
-        os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
+        if not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = settings.openai_api_key
         try:
             deepeval_version = importlib.metadata.version("deepeval")
         except importlib.metadata.PackageNotFoundError:

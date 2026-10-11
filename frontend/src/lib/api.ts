@@ -268,7 +268,7 @@ export async function deletePattern(patternId: string): Promise<void> {
 export async function submitQuery(
   query: string,
   sessionId?: string,
-  options?: { paper_ids?: string[]; retrieval_mode?: "dense" | "bm25" | "hybrid"; rewrite_query?: boolean; year_from?: number; year_to?: number; provider?: "semantic_scholar" | "openalex" }
+  options?: { paper_ids?: string[]; retrieval_mode?: "dense" | "bm25" | "hybrid"; rewrite_query?: boolean; year_from?: number; year_to?: number; provider?: "semantic_scholar" | "openalex" | "pubmed" }
 ): Promise<QueryResponse> {
   return request<QueryResponse>("/api/query", {
     method: "POST",
@@ -289,7 +289,7 @@ export async function submitFollowUp(
   });
 }
 
-export async function discoverPapers(params: { query: string; year_from?: number; year_to?: number; open_access?: boolean }): Promise<DiscoveryResult> {
+export async function discoverPapers(params: { query: string; year_from?: number; year_to?: number; open_access?: boolean; semantic_offset?: number; openalex_offset?: number; pubmed_offset?: number }): Promise<DiscoveryResult> {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
   return request<DiscoveryResult>(`/api/discovery/search?${query}`);

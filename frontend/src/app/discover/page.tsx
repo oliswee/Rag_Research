@@ -4,7 +4,23 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, BookOpen, Loader2, Search } from "lucide-react";
 import { discoverPapers, getImport, retryImport, startImport } from "@/lib/api";
-import type { Candidate, ImportJob } from "@/types";
+import type { Candidate, DiscoveryResult, ImportJob } from "@/types";
+
+const sourceNames = { openalex: "OpenAlex", semantic_scholar: "Semantic Scholar", pubmed: "PubMed" };
+
+function paperIdentity(paper: Candidate) {
+  return paper.doi ? `doi:${paper.doi.toLowerCase()}` : `${paper.provider}:${paper.provider_id}`;
+}
+
+function appendUnique(previous: Candidate[], incoming: Candidate[]) {
+  const seen = new Set(previous.map(paperIdentity));
+  return [...previous, ...incoming.filter((paper) => {
+    const identity = paperIdentity(paper);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  })];
+}
 
 export default function DiscoverPage() {
   const [query, setQuery] = useState("");
@@ -13,6 +29,12 @@ export default function DiscoverPage() {
   const [openOnly, setOpenOnly] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [themes, setThemes] = useState<{ label: string; count: number }[]>([]);
+  const [activeSearch, setActiveSearch] = useState<Parameters<typeof discoverPapers>[0] | null>(null);
+  const [offsets, setOffsets] = useState<DiscoveryResult["next_offsets"]>({ semantic_scholar: 0, openalex: 0, pubmed: 0 });
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [showAllTags, setShowAllTags] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [savedKeys, setSavedKeys] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -43,21 +65,60 @@ export default function DiscoverPage() {
     setError("");
     setWarnings([]);
     setSelected([]);
+    setSelectedTags([]);
+    setHasMore(false);
     try {
-      const result = await discoverPapers({
+      const params = {
         query: query.trim(),
         year_from: yearFrom ? Number(yearFrom) : undefined,
         year_to: yearTo ? Number(yearTo) : undefined,
         open_access: openOnly,
-      });
+      };
+      const result = await discoverPapers(params);
       setCandidates(result.candidates);
       setThemes(result.themes);
       setWarnings(result.errors);
+      setActiveSearch(params);
+      setOffsets(result.next_offsets);
+      setHasMore(result.has_more);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Search failed");
     } finally {
       setSearching(false);
     }
+  }
+
+  async function loadMore() {
+    if (!activeSearch || !hasMore || loadingMore) return;
+    setLoadingMore(true);
+    setError("");
+    try {
+      const result = await discoverPapers({
+        ...activeSearch,
+        semantic_offset: offsets.semantic_scholar,
+        openalex_offset: offsets.openalex,
+        pubmed_offset: offsets.pubmed,
+      });
+      const combined = appendUnique(candidates, result.candidates);
+      setCandidates(combined);
+      const counts = new Map<string, number>();
+      combined.forEach((paper) => {
+        if (paper.tags[0]) counts.set(paper.tags[0], (counts.get(paper.tags[0]) || 0) + 1);
+      });
+      setThemes([...counts].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, count]) => ({ label, count })));
+      setOffsets(result.next_offsets);
+      setHasMore(result.has_more);
+      setWarnings((previous) => [...new Set([...previous, ...result.errors])]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load more papers");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  function toggleTag(tag: string) {
+    setSelected([]);
+    setSelectedTags((previous) => previous.includes(tag) ? previous.filter((value) => value !== tag) : [...previous, tag]);
   }
 
   async function addToLibrary(papers: Candidate[]) {
@@ -76,12 +137,16 @@ export default function DiscoverPage() {
 
   const busy = saving || job?.status === "queued" || job?.status === "running";
   const saved = new Set(savedKeys);
+  const tagCounts = new Map<string, number>();
+  candidates.forEach((paper) => paper.tags.forEach((tag) => tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)));
+  const availableTags = [...tagCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const visibleCandidates = selectedTags.length === 0 ? candidates : candidates.filter((paper) => paper.tags.some((tag) => selectedTags.includes(tag)));
 
   return <main className="mx-auto max-w-6xl px-4 py-10 md:py-16">
     <header className="mb-10 max-w-3xl">
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Research starts here</p>
       <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">Discover the papers.<br /><span className="text-muted-foreground">Keep the evidence.</span></h1>
-      <p className="mt-5 leading-7 text-muted-foreground">Search Semantic Scholar and OpenAlex. Add a paper to your local library to keep its available full text or abstract.</p>
+      <p className="mt-5 leading-7 text-muted-foreground">Search Semantic Scholar, OpenAlex, and PubMed. Add a paper to your local library to keep its available full text or abstract.</p>
     </header>
     <form onSubmit={searchPapers} className="rounded-2xl border bg-card p-4 shadow-sm md:p-6">
       <label htmlFor="research-query" className="mb-2 block text-sm font-semibold">Research topic or question</label>
@@ -105,20 +170,21 @@ export default function DiscoverPage() {
     </div>}
     {candidates.length > 0 && <section className="mt-10">
       <h2 className="text-2xl font-semibold">Search results</h2>
-      <p className="mb-5 text-sm text-muted-foreground">{candidates.length} papers · add any paper to your library</p>
+      <p className="mb-5 text-sm text-muted-foreground">Showing {visibleCandidates.length} of {candidates.length} loaded papers · add any paper to your library</p>
       {themes.length > 0 && <div className="mb-5 flex flex-wrap items-center gap-2 text-sm"><strong>Related themes:</strong>{themes.map((theme) => <span key={theme.label} className="rounded-full border px-3 py-1">{theme.label} · {theme.count}</span>)}</div>}
+      {availableTags.length > 0 && <div className="mb-5 rounded-xl border bg-card p-4"><div className="mb-3 flex items-center justify-between gap-3"><strong className="text-sm">Filter by source topics</strong>{selectedTags.length > 0 && <button onClick={() => setSelectedTags([])} className="text-sm underline">Clear filters</button>}</div><div className="flex flex-wrap gap-2">{availableTags.slice(0, showAllTags ? undefined : 12).map(([tag, count]) => <button key={tag} type="button" aria-label={`Filter by ${tag}`} aria-pressed={selectedTags.includes(tag)} onClick={() => toggleTag(tag)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(tag) ? "border-emerald-700 bg-emerald-700 text-white" : "hover:border-emerald-700"}`}>{tag} · {count}</button>)}{availableTags.length > 12 && <button onClick={() => setShowAllTags((value) => !value)} className="text-xs underline">{showAllTags ? "Show fewer topics" : `Show all ${availableTags.length} topics`}</button>}</div><p className="mt-3 text-xs text-muted-foreground">Selected topics filter the papers loaded so far. Select multiple topics to show papers matching any of them.</p></div>}
       <p className="mb-5 text-xs text-muted-foreground">Recency, citation, and potential foundation labels describe these search results; they do not rate research quality.</p>
       {selected.length > 0 && <button onClick={() => void addToLibrary(candidates.filter((paper) => selected.includes(`${paper.provider}:${paper.provider_id}`)))} disabled={busy} className="mb-5 rounded-lg bg-foreground px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50">Add {selected.length} selected to library</button>}
-      <div className="grid gap-4 md:grid-cols-2">{candidates.map((paper) => {
+      <div className="grid gap-4 md:grid-cols-2">{visibleCandidates.map((paper) => {
         const key = `${paper.provider}:${paper.provider_id}`;
         const paperSaved = saved.has(key);
         return <article key={`${paper.provider}:${paper.provider_id}`} className="rounded-xl border bg-card p-5">
-          <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><span>{paper.provider === "openalex" ? "OpenAlex" : "Semantic Scholar"} · {paper.year || "Year unknown"}</span><span>{paper.pdf_url ? "Open PDF" : paper.abstract ? "Abstract" : "Metadata only"}</span></div>
+          <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><span>{sourceNames[paper.provider]} · {paper.year || "Year unknown"}</span><span>{paper.pdf_url ? "Open PDF" : paper.abstract ? "Abstract" : "Metadata only"}</span></div>
           <h3 className="text-lg font-semibold leading-snug">{paper.title}</h3>
           <p className="mt-2 text-sm text-muted-foreground">{paper.authors.slice(0, 3).join(", ")}{paper.authors.length > 3 ? " et al." : ""}</p>
           <p className="mt-3 text-sm"><strong>Why shown:</strong> {paper.relevance_reason}</p>
           {paper.role_labels.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Result signals">{paper.role_labels.map((label) => <span key={label} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-900">{label}</span>)}</div>}
-          {paper.tags.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Source topics">{paper.tags.map((tag) => <span key={tag} className="rounded-full bg-muted px-2 py-1 text-xs">{tag}</span>)}</div>}
+          {paper.tags.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Source topics">{paper.tags.map((tag) => <button key={tag} type="button" aria-label={`Filter by ${tag}`} aria-pressed={selectedTags.includes(tag)} onClick={() => toggleTag(tag)} className={`rounded-full px-2 py-1 text-xs ${selectedTags.includes(tag) ? "bg-emerald-700 text-white" : "bg-muted hover:bg-emerald-100"}`}>{tag}</button>)}</div>}
           {paper.cited_by_results.length > 0 && <p className="mt-3 text-xs text-muted-foreground">Referenced by {paper.cited_by_results.map((related, index) => <span key={related.provider_id}>{index > 0 ? ", " : ""}<a href={`https://openalex.org/${related.provider_id}`} target="_blank" rel="noopener noreferrer" className="underline">{related.title}</a></span>)} in these results.</p>}
           {paper.abstract_summary ? <p className="mt-4 line-clamp-4 text-sm leading-6 text-muted-foreground"><strong>From the abstract:</strong> {paper.abstract_summary}</p> : <p className="mt-4 text-sm text-muted-foreground">No abstract available; summary not provided.</p>}
           <p className="mt-3 text-xs text-muted-foreground">{paper.citation_count == null ? "Citation count unavailable" : `${paper.citation_count} citations reported by source`} · Citation count is one signal, not a quality rating.</p>
@@ -126,6 +192,8 @@ export default function DiscoverPage() {
           <div className="mt-5 flex flex-wrap items-center gap-3"><button onClick={() => void addToLibrary([paper])} disabled={busy || paperSaved} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50"><BookOpen className="h-4 w-4" />{paperSaved ? "In library" : "Add to library"}</button><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.includes(key)} disabled={busy || paperSaved} onChange={() => setSelected((previous) => previous.includes(key) ? previous.filter((value) => value !== key) : [...previous, key])} /> Select for batch</label>{paper.source_url && <a href={paper.source_url} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-sm font-medium underline">Source <ArrowUpRight className="h-4 w-4" /></a>}</div>
         </article>;
       })}</div>
+      {hasMore && <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="mx-auto mt-8 flex items-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">{loadingMore && <Loader2 className="h-4 w-4 animate-spin" />} Load more papers</button>}
+      <p className="mt-6 text-xs text-muted-foreground">PubMed records are supplied by NCBI. Abstracts may be copyrighted; <a href="https://www.ncbi.nlm.nih.gov/About/disclaimer.html" target="_blank" rel="noopener noreferrer" className="underline">read NCBI&apos;s disclaimer</a>.</p>
     </section>}
   </main>;
 }

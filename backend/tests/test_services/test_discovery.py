@@ -5,7 +5,18 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app.services.discovery import DiscoveryService
+from app.services.discovery import DiscoveryService, _abstract_summary
+
+
+def test_abstract_summary_omits_bibliographic_lead_in():
+    abstract = (
+        "A. Smith, B. Jones, C. Lee, D. Chen, E. Miller. "
+        "Proceedings of a research conference. "
+        "We compare retrieval methods and report higher recall."
+    )
+    assert _abstract_summary(abstract) == (
+        "We compare retrieval methods and report higher recall."
+    )
 
 
 def _semantic(paper_id: str, doi: str | None = None) -> dict:

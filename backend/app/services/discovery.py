@@ -45,7 +45,24 @@ def _abstract_summary(abstract: str | None) -> str | None:
     if not abstract:
         return None
     sentences = re.split(r"(?<=[.!?])\s+", abstract.strip())
-    return " ".join(sentences[:2])[:480] or None
+    informative = [
+        sentence
+        for sentence in sentences
+        if len(sentence.split()) >= 3
+        and not re.match(
+            r"^(proceedings|journal|conference|published in)\b", sentence, re.I
+        )
+        and not (
+            sentence.count(",") >= 4
+            and not re.search(
+                r"\b(the|this|we|study|paper|research|results)\b", sentence, re.I
+            )
+        )
+    ]
+    summary = " ".join(informative[:2]).strip()
+    if len(summary) > 480:
+        summary = summary[:480].rsplit(" ", 1)[0] + "…"
+    return summary or None
 
 
 def _tags(values: list[str]) -> list[str]:

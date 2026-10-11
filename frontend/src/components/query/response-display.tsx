@@ -79,6 +79,16 @@ export function ResponseDisplay({ response, onFollowUp }: ResponseDisplayProps) 
         const source = evidence.find((item) => item.chunk_id === match[1]);
         return source ? <a key={index} href={`#chunk-${source.chunk_id}`} className="mx-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-900 hover:underline">{source.title.slice(0, 24)}{source.page_start ? ` · p. ${source.page_start}` : source.content_scope === "abstract" ? " · abstract" : ""}</a> : null;
       })}</div>
+      {response.rewrite_status === "applied" && response.retrieval_query && (
+        <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+          Searched as: {response.retrieval_query}
+        </p>
+      )}
+      {(response.rewrite_status === "unavailable" || response.rewrite_status === "failed") && (
+        <p className="text-xs text-muted-foreground">
+          Query rewrite was unavailable; search used the conversation context.
+        </p>
+      )}
       {evidence.length > 0 && <section className="space-y-3"><h3 className="text-sm font-semibold">Source evidence · {response.retrieval_mode}</h3>{evidence.map((source) => <article id={`chunk-${source.chunk_id}`} key={source.chunk_id} className="rounded-xl border bg-muted/30 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold">{source.title}</h4><span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{source.content_scope === "abstract" ? "Abstract" : source.page_start ? `Page ${source.page_start}` : "Source text"}</span></div><details className="mt-3 text-sm leading-6 text-muted-foreground"><summary className="cursor-pointer border-l-2 border-emerald-600 pl-3">{source.excerpt.slice(0, 260)}{source.excerpt.length > 260 ? "… Read full excerpt" : ""}</summary>{source.excerpt.length > 260 && <blockquote className="mt-3 border-l-2 border-emerald-600 pl-3">{source.excerpt}</blockquote>}</details>{source.source_url && <a href={`${source.source_url}${source.page_start ? `#page=${source.page_start}` : ""}`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline">Open source <ExternalLink className="h-3 w-3" /></a>}</article>)}</section>}
     </div>;
   }

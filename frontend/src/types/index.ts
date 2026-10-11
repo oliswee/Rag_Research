@@ -182,6 +182,8 @@ export interface QueryResponse {
   follow_up_suggestions: string[];
   evidence?: Evidence[];
   retrieval_mode?: string | null;
+  retrieval_query?: string | null;
+  rewrite_status?: "disabled" | "applied" | "unavailable" | "failed" | null;
 }
 
 export interface Evidence {

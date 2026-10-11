@@ -7,7 +7,6 @@ A local research assistant for discovering papers and tracing answers to source 
 ## Current features
 
 - Discover papers through Semantic Scholar and OpenAlex (up to 20 results per search).
-- Search the Australian researcher directory by name, institution, discipline or topic. The directory reads public OpenAlex profiles on demand and shows latest recorded AU affiliations, recent publications and coauthors from those publications. OpenAlex author and affiliation matching may be incomplete; verify details at the source.
 - Select papers to import in the background. Open PDFs are parsed by page; unavailable PDFs fall back to abstracts or metadata. DOI, arXiv and provider IDs prevent duplicate imports. The library has no fixed paper count limit.
 - Upload PDFs or paste text, and review generated claims where API keys are available.
 - Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix.
@@ -61,6 +60,10 @@ Open [http://localhost:3000/discover](http://localhost:3000/discover). Compose r
 After adding an OpenAI key to a library created without one, run `uv run python -m evaluation.reindex` from `backend/` to rebuild source vectors. Keywords remain searchable while indexing is unavailable.
 
 Retrieval quality is not yet certified: the spec requires 40 independently labelled queries before hybrid search becomes the default. Run `uv run python -m evaluation.evaluate labels.jsonl --output report.json` from `backend/` after creating that dataset. Add `--judge` and install DeepEval to include Faithfulness scoring. The script also checks citation IDs and reports Recall@10, nDCG@10, and latency for each retrieval mode.
+
+## Australian researcher directory
+
+Use the **Researchers** page to search public OpenAlex author profiles by name, Australian institution, discipline, or topic. It shows latest recorded AU affiliations, recent publications, and coauthors from those publications. OpenAlex author and affiliation matching may be incomplete; verify details at the source.
 
 ## License
 

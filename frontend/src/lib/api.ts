@@ -268,7 +268,7 @@ export async function deletePattern(patternId: string): Promise<void> {
 export async function submitQuery(
   query: string,
   sessionId?: string,
-  options?: { paper_ids?: string[]; retrieval_mode?: "dense" | "bm25" | "hybrid"; year_from?: number; year_to?: number; provider?: "semantic_scholar" | "openalex" }
+  options?: { paper_ids?: string[]; retrieval_mode?: "dense" | "bm25" | "hybrid"; rewrite_query?: boolean; year_from?: number; year_to?: number; provider?: "semantic_scholar" | "openalex" }
 ): Promise<QueryResponse> {
   return request<QueryResponse>("/api/query", {
     method: "POST",

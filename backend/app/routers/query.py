@@ -13,6 +13,7 @@ from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
 from app.services.session_manager import session_manager
 from app.workflows import QueryInput, QueryWorkflow
+from app.workflows.query_rewrite import rewrite_for_retrieval
 from app.workflows.source_query import answer_from_evidence, has_source_chunks, retrieve
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ async def submit_query(
     if (
         "retrieval_mode" in request.model_fields_set
         or request.paper_ids is not None
+        or (request.rewrite_query and await has_source_chunks(db))
         or (has_online_imports and await has_source_chunks(db))
     ):
         session = (
@@ -54,11 +56,9 @@ async def submit_query(
                 },
             )
         session = session or session_manager.create_session()
-        previous = next(
-            (turn.content for turn in reversed(session.history) if turn.role == "user"),
-            "",
+        retrieval_query, rewrite_status = await rewrite_for_retrieval(
+            request.query, session.history, request.rewrite_query
         )
-        retrieval_query = f"{previous} {request.query}" if previous else request.query
         evidence, mode = await retrieve(
             db,
             retrieval_query,
@@ -95,6 +95,8 @@ async def submit_query(
             confidence="medium" if cited else "low",
             evidence=cited,
             retrieval_mode=mode,
+            retrieval_query=retrieval_query,
+            rewrite_status=rewrite_status,
         ).model_dump()
     workflow = QueryWorkflow(db=db)
     result = await workflow.run(
@@ -137,13 +139,18 @@ async def follow_up_query(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
         )
     ).scalar_one_or_none() is not None
-    if request.retrieval_mode or (has_online_imports and await has_source_chunks(db)):
+    if (
+        request.retrieval_mode
+        or (request.rewrite_query and await has_source_chunks(db))
+        or (has_online_imports and await has_source_chunks(db))
+    ):
         return await submit_query(
             QueryRequest(
                 query=request.query,
                 session_id=request.session_id,
                 paper_ids=request.paper_ids,
                 retrieval_mode=request.retrieval_mode or "dense",
+                rewrite_query=request.rewrite_query,
                 year_from=request.year_from,
                 year_to=request.year_to,
                 provider=request.provider,

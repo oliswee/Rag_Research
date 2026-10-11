@@ -9,6 +9,7 @@ A local research assistant for discovering papers and tracing answers to source 
 - Upload PDFs or paste text, and review generated claims where API keys are available.
 - Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix.
 - Use SQLite FTS5 keyword search, Qdrant dense search, or experimental RRF hybrid search. Dense retrieval falls back to keyword search when vectors are unavailable. Each answer cites only SQLite excerpts; abstract excerpts have no invented page number.
+- Optionally rewrite a question into a standalone search query using the configured Anthropic API key. The answer still addresses the original question, and the effective search query is shown with the result. If rewriting is unavailable, search uses the current question with the previous question for context.
 
 ## Run locally
 

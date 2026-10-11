@@ -20,7 +20,7 @@ vi.mock("@/lib/api", () => {
     errors: ["Semantic Scholar: 429 rate limit reached"],
     themes: [{ label: "Information Retrieval", count: 2 }],
     candidates: [paper, { ...paper, provider_id: "W2", title: "Another retrieval paper" }],
-    next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 0 },
+    next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 0, arxiv: 0 },
     has_more: false,
   }),
   startImport: vi.fn().mockResolvedValue({ job_id: "job-1", status: "queued" }),
@@ -66,7 +66,7 @@ it("imports multiple selected papers in one job", async () => {
 it("loads the next batch without duplicating papers and filters by a selected tag", async () => {
   const first: DiscoveryResult = {
     errors: [], themes: [], has_more: true,
-    next_offsets: { semantic_scholar: 0, openalex: 1, pubmed: 0 },
+    next_offsets: { semantic_scholar: 0, openalex: 1, pubmed: 0, arxiv: 0 },
     candidates: [{ provider: "openalex", provider_id: "W1", title: "First paper", authors: [], year: 2024,
       abstract: "First abstract", abstract_summary: "First abstract", source_url: null, pdf_url: null,
       open_access: false, doi: "10.1234/first", citation_count: 1, tags: ["Biology"],
@@ -74,7 +74,7 @@ it("loads the next batch without duplicating papers and filters by a selected ta
   };
   const second: DiscoveryResult = {
     ...first, has_more: false,
-    next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 1 },
+    next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 1, arxiv: 0 },
     candidates: [first.candidates[0], { ...first.candidates[0], provider: "pubmed", provider_id: "123",
       doi: "10.1234/second", title: "Second paper", tags: ["Genetics"] }],
   };
@@ -103,7 +103,7 @@ it("combines topic filters that differ only by case", async () => {
   vi.mocked(discoverPapers).mockResolvedValueOnce({
     candidates: [paper, { ...paper, provider_id: "W2", title: "Second genetics paper", tags: ["genetics"] }],
     errors: [], themes: [], has_more: false,
-    next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 0 },
+    next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 0, arxiv: 0 },
   });
   render(<DiscoverPage />);
   fireEvent.change(screen.getByLabelText("Research topic or question"), { target: { value: "genetics" } });
@@ -112,4 +112,24 @@ it("combines topic filters that differ only by case", async () => {
   expect(screen.getByText("Genetics · 2")).toBeInTheDocument();
   fireEvent.click(screen.getAllByRole("button", { name: "Filter by Genetics" })[0]);
   expect(screen.getByText("Second genetics paper")).toBeInTheDocument();
+});
+
+it("shows arXiv papers as a searchable source", async () => {
+  const paper = {
+    provider: "arxiv" as const, provider_id: "2401.12345", title: "A preprint",
+    authors: ["A. Author"], year: 2024, abstract: "Preprint abstract.",
+    abstract_summary: "Preprint abstract.", source_url: "https://arxiv.org/abs/2401.12345",
+    pdf_url: "https://arxiv.org/pdf/2401.12345", open_access: true, doi: null,
+    citation_count: null, tags: ["cs.IR"], relevance_reason: "Matches retrieval.",
+    rank_score: 1, possible_duplicate_ids: [], role_labels: [], cited_by_results: [],
+  };
+  vi.mocked(discoverPapers).mockResolvedValueOnce({
+    candidates: [paper], errors: [], themes: [], has_more: false,
+    next_offsets: { semantic_scholar: 0, openalex: 0, pubmed: 0, arxiv: 1 },
+  });
+  render(<DiscoverPage />);
+  fireEvent.change(screen.getByLabelText("Research topic or question"), { target: { value: "retrieval" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search papers" }));
+  await screen.findByText("A preprint");
+  expect(screen.getByText("arXiv · 2024")).toBeInTheDocument();
 });

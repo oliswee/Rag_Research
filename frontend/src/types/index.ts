@@ -198,7 +198,7 @@ export interface Evidence {
 }
 
 export interface Candidate {
-  provider: "semantic_scholar" | "openalex" | "pubmed";
+  provider: "semantic_scholar" | "openalex" | "pubmed" | "arxiv";
   provider_id: string;
   title: string;
   authors: string[];
@@ -222,7 +222,7 @@ export interface DiscoveryResult {
   candidates: Candidate[];
   errors: string[];
   themes: { label: string; count: number }[];
-  next_offsets: { semantic_scholar: number; openalex: number; pubmed: number };
+  next_offsets: { semantic_scholar: number; openalex: number; pubmed: number; arxiv: number };
   has_more: boolean;
 }
 export interface ImportJob {

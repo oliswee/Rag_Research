@@ -6,7 +6,7 @@ import { ArrowUpRight, BookOpen, Loader2, Search } from "lucide-react";
 import { discoverPapers, getImport, retryImport, startImport } from "@/lib/api";
 import type { Candidate, DiscoveryResult, ImportJob } from "@/types";
 
-const sourceNames = { openalex: "OpenAlex", semantic_scholar: "Semantic Scholar", pubmed: "PubMed" };
+const sourceNames = { openalex: "OpenAlex", semantic_scholar: "Semantic Scholar", pubmed: "PubMed", arxiv: "arXiv" };
 const topicKey = (tag: string) => tag.trim().toLocaleLowerCase();
 
 function paperIdentity(paper: Candidate) {
@@ -30,7 +30,7 @@ export default function DiscoverPage() {
   const [openOnly, setOpenOnly] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [activeSearch, setActiveSearch] = useState<Parameters<typeof discoverPapers>[0] | null>(null);
-  const [offsets, setOffsets] = useState<DiscoveryResult["next_offsets"]>({ semantic_scholar: 0, openalex: 0, pubmed: 0 });
+  const [offsets, setOffsets] = useState<DiscoveryResult["next_offsets"]>({ semantic_scholar: 0, openalex: 0, pubmed: 0, arxiv: 0 });
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -97,6 +97,7 @@ export default function DiscoverPage() {
         semantic_offset: offsets.semantic_scholar,
         openalex_offset: offsets.openalex,
         pubmed_offset: offsets.pubmed,
+        arxiv_offset: offsets.arxiv,
       });
       const combined = appendUnique(candidates, result.candidates);
       setCandidates(combined);
@@ -145,7 +146,7 @@ export default function DiscoverPage() {
     <header className="mb-10 max-w-3xl">
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Research starts here</p>
       <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">Discover the papers.<br /><span className="text-muted-foreground">Keep the evidence.</span></h1>
-      <p className="mt-5 leading-7 text-muted-foreground">Search Semantic Scholar, OpenAlex, and PubMed. Add a paper to your local library to keep its available full text or abstract.</p>
+      <p className="mt-5 leading-7 text-muted-foreground">Search Semantic Scholar, OpenAlex, arXiv, and PubMed. Add a paper to your local library to keep its available full text or abstract.</p>
     </header>
     <form onSubmit={searchPapers} className="rounded-2xl border bg-card p-4 shadow-sm md:p-6">
       <label htmlFor="research-query" className="mb-2 block text-sm font-semibold">Research topic or question</label>

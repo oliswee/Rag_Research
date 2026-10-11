@@ -32,6 +32,7 @@ async def search_papers(
     semantic_offset: int = Query(0, ge=0, le=9999),
     openalex_offset: int = Query(0, ge=0, le=9999),
     pubmed_offset: int = Query(0, ge=0, le=9999),
+    arxiv_offset: int = Query(0, ge=0, le=9999),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     if year_from and year_to and year_from > year_to:
@@ -48,6 +49,7 @@ async def search_papers(
                 "semantic_scholar": semantic_offset,
                 "openalex": openalex_offset,
                 "pubmed": pubmed_offset,
+                "arxiv": arxiv_offset,
             },
         )
     finally:
@@ -71,7 +73,7 @@ async def start_import(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     if any(
-        ref.provider not in {"semantic_scholar", "openalex", "pubmed"}
+        ref.provider not in {"semantic_scholar", "openalex", "pubmed", "arxiv"}
         for ref in request.candidates
     ):
         raise HTTPException(422, "Unsupported provider")

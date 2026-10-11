@@ -59,6 +59,7 @@ def _openalex(
 async def test_search_balances_providers_and_includes_grounded_insights():
     service = DiscoveryService()
     service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
+    service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(
         side_effect=[
             {"data": [_semantic("s1"), _semantic("s2"), _semantic("s3")]},
@@ -89,6 +90,7 @@ async def test_search_explains_rate_limit_and_keeps_other_source():
     )
     service = DiscoveryService()
     service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
+    service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(
         side_effect=[
             httpx.HTTPStatusError(
@@ -111,6 +113,7 @@ async def test_search_explains_rate_limit_and_keeps_other_source():
 async def test_duplicate_doi_prefers_openalex_for_reliable_import():
     service = DiscoveryService()
     service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
+    service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(
         side_effect=[
             {"data": [_semantic("s1", "10.1234/shared")]},
@@ -135,6 +138,7 @@ async def test_result_relationships_and_source_based_roles():
     recent["publication_year"] = 2026
     service = DiscoveryService()
     service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
+    service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
     service._get = AsyncMock(side_effect=[{"data": []}, {"results": [older, recent]}])
     try:
         result = await service.search("retrieval accuracy")
@@ -181,6 +185,7 @@ async def test_load_more_cursor_keeps_unconsumed_pubmed_results():
             "fetched_count": 1,
         }
     )
+    service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
     try:
         first = await service.search("retrieval", limit=2)
         second = await service.search(
@@ -196,3 +201,69 @@ async def test_load_more_cursor_keeps_unconsumed_pubmed_results():
         service._get.call_args_list[2].args[1]["offset"]
         == first["next_offsets"]["semantic_scholar"]
     )
+
+
+@pytest.mark.asyncio
+async def test_arxiv_result_is_importable_and_cursor_advances():
+    service = DiscoveryService()
+    service._get = AsyncMock(
+        side_effect=[{"data": [], "total": 0}, {"results": [], "meta": {"count": 0}}]
+    )
+    service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
+    arxiv = {
+        "provider": "arxiv",
+        "provider_id": "2401.12345",
+        "arxiv_id": "2401.12345",
+        "title": "Retrieval paper",
+        "authors": ["A. Author"],
+        "year": 2024,
+        "abstract": "The study evaluates retrieval.",
+        "source_url": "https://arxiv.org/abs/2401.12345",
+        "pdf_url": "https://arxiv.org/pdf/2401.12345",
+        "open_access": True,
+        "doi": None,
+        "citation_count": None,
+        "tags": ["cs.IR"],
+    }
+    service._search_arxiv = AsyncMock(
+        return_value={"results": [arxiv], "total": 2, "fetched_count": 1}
+    )
+    try:
+        result = await service.search("retrieval", limit=1)
+    finally:
+        await service.close()
+    assert result["candidates"][0]["provider"] == "arxiv"
+    assert result["candidates"][0]["abstract_summary"]
+    assert result["next_offsets"]["arxiv"] == 1
+    assert result["has_more"] is True
+
+
+@pytest.mark.asyncio
+async def test_arxiv_candidate_lookup_strips_version():
+    from app.services.arxiv import parse_arxiv_feed
+    from tests.test_services.test_arxiv import FEED
+
+    service = DiscoveryService()
+    service._get_xml = AsyncMock(return_value=FEED)
+    try:
+        candidate = await service.get_candidate("arxiv", "2401.12345")
+    finally:
+        await service.close()
+    assert candidate == parse_arxiv_feed(FEED)["results"][0]
+    assert service._get_xml.call_args.args[1]["id_list"] == "2401.12345"
+
+
+@pytest.mark.asyncio
+async def test_arxiv_question_uses_topic_terms_without_question_words():
+    service = DiscoveryService()
+    service._arxiv_feed = AsyncMock(return_value={"results": [], "total": 0})
+    try:
+        await service._search_arxiv(
+            "How does retrieval improve medical question answering?", 20, 0
+        )
+    finally:
+        await service.close()
+    query = service._arxiv_feed.call_args.args[0]["search_query"]
+    assert query.startswith("all:retrieval AND all:improve")
+    assert "all:How" not in query
+    assert "all:does" not in query

@@ -73,7 +73,7 @@ export function PaperCard({ paper, onView, onDelete, disabled }: PaperCardProps)
               <Badge variant="outline">{formatPaperType(paper.type)}</Badge>
               {paper.content_scope === "abstract" && <Badge variant="warning">Abstract only</Badge>}
               {paper.content_scope === "metadata" && <Badge variant="secondary">Metadata only</Badge>}
-              {paper.import_source && <Badge variant="outline">{{ openalex: "OpenAlex", semantic_scholar: "Semantic Scholar", pubmed: "PubMed" }[paper.import_source] || paper.import_source}</Badge>}
+              {paper.import_source && <Badge variant="outline">{{ openalex: "OpenAlex", semantic_scholar: "Semantic Scholar", pubmed: "PubMed", arxiv: "arXiv" }[paper.import_source] || paper.import_source}</Badge>}
             </div>
           </div>
 

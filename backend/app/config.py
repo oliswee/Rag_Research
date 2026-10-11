@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # API Keys
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    semantic_scholar_api_key: str = ""
 
     # LLM Settings
     anthropic_model: str = ModelID.SONNET_4
@@ -63,7 +64,7 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
 
     # Ingestion Settings
-    max_pdf_pages: int = 100
+    max_pdf_pages: int = 200
     max_file_size_mb: int = 10
     extraction_timeout_seconds: int = 120
     extraction_max_retries: int = 3
@@ -71,7 +72,7 @@ class Settings(BaseSettings):
     # LangSmith (optional)
     langchain_tracing_v2: bool = False
     langchain_api_key: str = ""
-    langchain_project: str = "research-vault"
+    langchain_project: str = "foliotrace"
 
 
 settings = Settings()

@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Date, DateTime, Index, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Index, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,7 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.pattern import Pattern
+    from app.models.source import PaperChunk, PaperIdentifier
 
 
 def _utc_now() -> datetime:
@@ -54,6 +55,10 @@ class Paper(Base):
     published_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     type: Mapped[PaperType] = mapped_column(SQLEnum(PaperType))
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    import_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    open_access: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    content_scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[PaperStatus] = mapped_column(
         SQLEnum(PaperStatus), default=PaperStatus.processing
     )
@@ -64,6 +69,12 @@ class Paper(Base):
 
     # Relationship to patterns
     patterns: Mapped[list["Pattern"]] = relationship(
+        back_populates="paper", cascade="all, delete-orphan"
+    )
+    identifiers: Mapped[list["PaperIdentifier"]] = relationship(
+        back_populates="paper", cascade="all, delete-orphan"
+    )
+    chunks: Mapped[list["PaperChunk"]] = relationship(
         back_populates="paper", cascade="all, delete-orphan"
     )
 

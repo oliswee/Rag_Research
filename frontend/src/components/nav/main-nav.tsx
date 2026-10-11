@@ -3,16 +3,18 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getHealth } from "@/lib/api";
-import { BookOpen, Library, Moon, Search, Sun, Upload } from "lucide-react";
+import { BookOpen, Columns3, Compass, Library, Moon, Search, Sun, Upload } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useSyncExternalStore, useState } from "react";
 
 const NAV_ITEMS = [
+  { href: "/discover", label: "Discover", icon: Compass },
   { href: "/upload", label: "Upload", icon: Upload },
   { href: "/library", label: "Library", icon: Library },
   { href: "/query", label: "Query", icon: Search },
+  { href: "/compare", label: "Compare", icon: Columns3 },
 ];
 
 // Use useSyncExternalStore to avoid hydration mismatch
@@ -48,11 +50,11 @@ export function MainNav() {
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4">
         {/* Logo */}
-        <Link href="/library" className="flex items-center gap-2">
+        <Link href="/discover" className="flex items-center gap-2">
           <BookOpen className="h-6 w-6 text-primary" />
-          <span className="font-semibold">Research Vault</span>
+          <span className="font-semibold">FolioTrace</span>
         </Link>
 
         {/* Nav links */}

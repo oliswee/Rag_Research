@@ -18,9 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_db
-from app.models import Paper, PaperStatus, PaperType, Pattern
+from app.models import Paper, PaperChunk, PaperStatus, PaperType, Pattern
 from app.schemas.paper import PaperMetadataInput, PaperResponse
 from app.services import VectorStoreService
+from app.services.source_index import SourceVectorIndex
 from app.workflows import IngestionInput, IngestionWorkflow
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,8 @@ async def list_papers(
                 type=paper.type or PaperType.research_paper,
                 status=paper.status,
                 pattern_count=pattern_counts.get(paper.id, 0),
+                content_scope=paper.content_scope,
+                import_source=paper.import_source,
                 created_at=paper.created_at.isoformat() if paper.created_at else "",
                 updated_at=paper.updated_at.isoformat() if paper.updated_at else "",
             ).model_dump()
@@ -269,6 +272,8 @@ async def get_paper(
         type=paper.type or PaperType.research_paper,
         status=paper.status,
         pattern_count=pattern_count,
+        content_scope=paper.content_scope,
+        import_source=paper.import_source,
         created_at=paper.created_at.isoformat() if paper.created_at else "",
         updated_at=paper.updated_at.isoformat() if paper.updated_at else "",
     ).model_dump()
@@ -295,6 +300,11 @@ async def delete_paper(
         )
 
     # Delete patterns from database (cascade should handle this, but be explicit)
+    chunk_ids = (
+        (await db.execute(select(PaperChunk.id).where(PaperChunk.paper_id == paper_id)))
+        .scalars()
+        .all()
+    )
     pattern_query = select(Pattern).where(Pattern.paper_id == paper_id)
     patterns = (await db.execute(pattern_query)).scalars().all()
 
@@ -312,3 +322,7 @@ async def delete_paper(
     except Exception as e:
         # Log but don't fail - paper is already deleted
         logger.warning(f"Failed to delete vectors for paper {paper_id}: {e}")
+    try:
+        SourceVectorIndex().delete(list(chunk_ids))
+    except Exception as e:
+        logger.warning("Failed to delete source vectors for paper %s: %s", paper_id, e)

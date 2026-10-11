@@ -1,4 +1,4 @@
-"""API routers for Research Vault."""
+"""API routers for FolioTrace."""
 
 from app.routers.papers import router as papers_router
 from app.routers.patterns import paper_patterns_router, patterns_router

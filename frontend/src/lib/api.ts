@@ -1,5 +1,5 @@
 /**
- * API client for Research Vault backend.
+ * API client for FolioTrace backend.
  */
 
 import type {
@@ -17,6 +17,10 @@ import type {
   PatternStatus,
   PatternUpdateRequest,
   QueryResponse,
+  DiscoveryResult,
+  Candidate,
+  ImportJob,
+  CompareResult,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -168,6 +172,15 @@ export async function listPapers(
   return request<PaperListResponse>(path);
 }
 
+export async function listAllPapers(): Promise<PaperResponse[]> {
+  const papers: PaperResponse[] = [];
+  while (true) {
+    const page = await listPapers({ limit: 100, offset: papers.length });
+    papers.push(...page.papers);
+    if (papers.length >= page.total || page.papers.length === 0) return papers;
+  }
+}
+
 /**
  * Get a single paper by ID.
  */
@@ -254,11 +267,12 @@ export async function deletePattern(patternId: string): Promise<void> {
  */
 export async function submitQuery(
   query: string,
-  sessionId?: string
+  sessionId?: string,
+  options?: { paper_ids?: string[]; retrieval_mode?: "dense" | "bm25" | "hybrid"; year_from?: number; year_to?: number; provider?: "semantic_scholar" | "openalex" }
 ): Promise<QueryResponse> {
   return request<QueryResponse>("/api/query", {
     method: "POST",
-    body: JSON.stringify({ query, session_id: sessionId }),
+    body: JSON.stringify({ query, session_id: sessionId, ...options }),
   });
 }
 
@@ -273,6 +287,28 @@ export async function submitFollowUp(
     method: "POST",
     body: JSON.stringify({ query, session_id: sessionId }),
   });
+}
+
+export async function discoverPapers(params: { query: string; year_from?: number; year_to?: number; open_access?: boolean }): Promise<DiscoveryResult> {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
+  return request<DiscoveryResult>(`/api/discovery/search?${query}`);
+}
+
+export async function startImport(candidates: Candidate[]): Promise<{ job_id: string; status: string; estimated_api_calls: number }> {
+  return request<{ job_id: string; status: string; estimated_api_calls: number }>("/api/discovery/import", { method: "POST", body: JSON.stringify({ candidates: candidates.map(({ provider, provider_id }) => ({ provider, provider_id })) }) });
+}
+
+export async function getImport(jobId: string): Promise<ImportJob> {
+  return request<ImportJob>(`/api/discovery/imports/${jobId}`);
+}
+
+export async function retryImport(jobId: string): Promise<void> {
+  return request<void>(`/api/discovery/imports/${jobId}/retry`, { method: "POST" });
+}
+
+export async function comparePapers(paperIds: string[], question?: string): Promise<CompareResult> {
+  return request<CompareResult>("/api/research/compare", { method: "POST", body: JSON.stringify({ paper_ids: paperIds, question }) });
 }
 
 // ============================================================================

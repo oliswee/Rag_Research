@@ -1,5 +1,7 @@
 """Query-related request and response schemas."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.schemas.session import SourceReference
@@ -18,6 +20,11 @@ class QueryRequest(BaseModel):
         default=None,
         description="Optional session ID to continue an existing conversation",
     )
+    paper_ids: list[str] | None = None
+    retrieval_mode: Literal["hybrid", "dense", "bm25"] = "dense"
+    year_from: int | None = Field(None, ge=1800, le=2100)
+    year_to: int | None = Field(None, ge=1800, le=2100)
+    provider: Literal["semantic_scholar", "openalex"] | None = None
 
 
 class FollowUpRequest(BaseModel):
@@ -33,6 +40,11 @@ class FollowUpRequest(BaseModel):
         ...,
         description="Required session ID from previous query",
     )
+    paper_ids: list[str] | None = None
+    retrieval_mode: Literal["hybrid", "dense", "bm25"] | None = None
+    year_from: int | None = Field(None, ge=1800, le=2100)
+    year_to: int | None = Field(None, ge=1800, le=2100)
+    provider: Literal["semantic_scholar", "openalex"] | None = None
 
 
 class QueryResponse(BaseModel):
@@ -52,3 +64,5 @@ class QueryResponse(BaseModel):
         default_factory=list,
         description="Suggested follow-up questions",
     )
+    evidence: list[dict] = Field(default_factory=list)
+    retrieval_mode: str | None = None

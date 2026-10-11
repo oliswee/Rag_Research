@@ -79,6 +79,8 @@ class PaperResponse(BaseModel):
     type: PaperType = Field(..., description="Document type")
     status: PaperStatus = Field(..., description="Processing status")
     pattern_count: int = Field(..., description="Number of patterns extracted")
+    content_scope: str | None = None
+    import_source: str | None = None
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
     updated_at: str = Field(..., description="Last update timestamp (ISO format)")
 

@@ -1,8 +1,28 @@
 """Tests for PDF parser service."""
 
+import fitz
 import pytest
 
 from app.services.pdf_parser import PDFParseError, PDFParseResult, PDFParserService
+
+
+def test_parse_preserves_one_based_page_text():
+    document = fitz.open()
+    for content in ("First page evidence", "Second page evidence"):
+        page = document.new_page()
+        page.insert_text((72, 72), content)
+    pdf_bytes = document.tobytes()
+    document.close()
+
+    result = PDFParserService().parse(pdf_bytes)
+
+    assert [(page.number, page.text.strip()) for page in result.pages] == [
+        (1, "First page evidence"),
+        (2, "Second page evidence"),
+    ]
+    assert "First page evidence" in result.text
+    assert "Second page evidence" in result.text
+
 
 # --- Fixtures ---
 

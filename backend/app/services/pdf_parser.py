@@ -1,6 +1,6 @@
 """PDF text extraction service using PyMuPDF."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
 
@@ -18,6 +18,15 @@ class PDFParseResult:
     text: str
     page_count: int
     metadata: dict  # PDF internal metadata (title, author, etc.)
+    pages: list["PDFPage"] = field(default_factory=list)
+
+
+@dataclass
+class PDFPage:
+    """Extracted text with its one-based source page number."""
+
+    number: int
+    text: str
 
 
 class PDFParserService:
@@ -61,11 +70,13 @@ class PDFParserService:
 
             # Extract text from all pages
             text_parts = []
+            pages = []
             for page_num in range(doc.page_count):
                 page = doc[page_num]
                 text = page.get_text("text")  # Plain text extraction
                 if text.strip():
                     text_parts.append(text)
+                    pages.append(PDFPage(number=page_num + 1, text=text))
 
             full_text = "\n\n".join(text_parts)
 
@@ -86,6 +97,7 @@ class PDFParserService:
                 text=full_text,
                 page_count=doc.page_count,
                 metadata=metadata,
+                pages=pages,
             )
         finally:
             doc.close()

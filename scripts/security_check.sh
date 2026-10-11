@@ -1,5 +1,5 @@
 #!/bin/bash
-# Security check script for Research Vault
+# Security check script for FolioTrace
 # Run before commits to catch potential security issues
 
 set -e
@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 ERRORS=0
 
 echo "=========================================="
-echo "Research Vault Security Check"
+echo "FolioTrace Security Check"
 echo "=========================================="
 echo ""
 

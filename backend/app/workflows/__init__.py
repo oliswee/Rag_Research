@@ -1,4 +1,4 @@
-"""Workflow orchestration for Research Vault."""
+"""Workflow orchestration for FolioTrace."""
 
 from app.workflows.ingestion import IngestionInput, IngestionResult, IngestionWorkflow
 from app.workflows.query import QueryInput, QueryResult, QueryWorkflow

@@ -19,12 +19,13 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - DATABASE_URL=sqlite:///./data/research.db
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
-      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-research-assistant}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-foliotrace}
     volumes:
       - backend-data:/app/data
     depends_on:

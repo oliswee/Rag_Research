@@ -1,0 +1,199 @@
+"""Persisted, resumable-by-retry paper imports from public providers."""
+
+import logging
+from datetime import UTC, date, datetime
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.db import async_session_maker
+from app.models import (
+    ImportItem,
+    ImportJob,
+    Paper,
+    PaperChunk,
+    PaperIdentifier,
+    PaperStatus,
+    PaperType,
+)
+from app.services.discovery import DiscoveryService
+from app.services.pdf_download import download_pdf
+from app.services.pdf_parser import PDFParserService
+from app.services.source_index import SourceVectorIndex, build_chunks
+
+logger = logging.getLogger(__name__)
+
+
+def identifiers(candidate: dict) -> list[tuple[str, str]]:
+    values = [(candidate["provider"], candidate["provider_id"])]
+    if candidate.get("doi"):
+        values.append(("doi", candidate["doi"]))
+    if candidate.get("arxiv_id"):
+        values.append(("arxiv", candidate["arxiv_id"].lower()))
+    return values
+
+
+async def existing_paper(db: AsyncSession, candidate: dict) -> str | None:
+    for kind, value in identifiers(candidate):
+        found = (
+            await db.execute(
+                select(PaperIdentifier.paper_id).where(
+                    PaperIdentifier.kind == kind, PaperIdentifier.value == value
+                )
+            )
+        ).scalar_one_or_none()
+        if found:
+            return found
+    return None
+
+
+async def import_one(
+    db: AsyncSession, item: ImportItem, discovery: DiscoveryService
+) -> None:
+    """Resolve source again on the server, then save original text before indexing."""
+    item.status = "running"
+    await db.commit()
+    try:
+        candidate = await discovery.get_candidate(item.provider, item.provider_id)
+        duplicate = await existing_paper(db, candidate)
+        if duplicate:
+            item.paper_id, item.status = duplicate, "duplicate"
+            await db.commit()
+            return
+        warning = None
+        pages: list[tuple[str, int | None]] = []
+        scope = "metadata"
+        if candidate.get("pdf_url") and candidate.get("open_access"):
+            try:
+                payload = await download_pdf(candidate["pdf_url"])
+                parsed = PDFParserService(
+                    max_pages=min(settings.max_pdf_pages, 200)
+                ).parse(payload)
+                pages = [(page.text, page.number) for page in parsed.pages]
+                scope = "full_text"
+            except Exception as exc:
+                warning = (
+                    f"Open PDF unavailable: {type(exc).__name__}; "
+                    "used abstract when available"
+                )
+                logger.warning(
+                    "Open PDF import failed for %s: %s",
+                    item.provider_id,
+                    type(exc).__name__,
+                )
+        if not pages and candidate.get("abstract"):
+            pages = [(candidate["abstract"], None)]
+            scope = "abstract"
+        if not pages:
+            warning = (
+                (warning + "; ") if warning else ""
+            ) + "No open full text or abstract available; metadata only"
+        paper = Paper(
+            title=candidate["title"],
+            authors=candidate["authors"],
+            published_date=date(candidate["year"], 1, 1)
+            if candidate.get("year")
+            else None,
+            source=candidate.get("source_url"),
+            type=PaperType.research_paper,
+            content_text="\n\n".join(content for content, _ in pages) or None,
+            import_source=item.provider,
+            imported_at=datetime.now(UTC),
+            open_access=candidate.get("open_access"),
+            content_scope=scope,
+            status=PaperStatus.ready_for_review,
+        )
+        db.add(paper)
+        await db.flush()
+        for kind, value in identifiers(candidate):
+            db.add(PaperIdentifier(paper_id=paper.id, kind=kind, value=value))
+        chunks = []
+        for data in build_chunks(
+            pages,
+            scope,
+            candidate.get("pdf_url")
+            if scope == "full_text"
+            else candidate.get("source_url"),
+        ):
+            chunk = PaperChunk(paper_id=paper.id, **data)
+            db.add(chunk)
+            chunks.append(chunk)
+        item.paper_id, item.content_scope, item.warning, item.status = (
+            paper.id,
+            scope,
+            warning,
+            "done",
+        )
+        await db.commit()
+        # Index is rebuildable: a failed external service never erases source content.
+        if chunks and settings.openai_api_key:
+            try:
+                from app.services.embedding_service import EmbeddingService
+
+                embeddings = EmbeddingService()
+                index = SourceVectorIndex()
+                vectors = await embeddings.generate_text_batch(
+                    [chunk.text for chunk in chunks]
+                )
+                index.upsert_many(
+                    [
+                        (
+                            chunk.id,
+                            paper.id,
+                            vector,
+                            candidate.get("year"),
+                            item.provider,
+                        )
+                        for chunk, vector in zip(chunks, vectors, strict=True)
+                    ]
+                )
+            except Exception as exc:
+                item.warning = (
+                    (item.warning + "; ") if item.warning else ""
+                ) + f"Vector indexing pending: {type(exc).__name__}"
+                await db.commit()
+        elif chunks:
+            item.warning = (
+                (item.warning + "; ") if item.warning else ""
+            ) + "Vector indexing pending: OPENAI_API_KEY is not configured"
+            await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        item = await db.get(ImportItem, item.id)
+        item.status = "failed"
+        item.error = f"{type(exc).__name__}: {exc}"[:1000]
+        await db.commit()
+        logger.exception("Import failed for %s", item.provider_id)
+
+
+async def process_job(job_id: str) -> None:
+    async with async_session_maker() as db:
+        job = await db.get(ImportJob, job_id)
+        if job is None:
+            return
+        job.status = "running"
+        await db.commit()
+        discovery = DiscoveryService()
+        try:
+            items = (
+                (
+                    await db.execute(
+                        select(ImportItem).where(ImportItem.job_id == job_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for item in items:
+                if item.status not in {"done", "duplicate"}:
+                    await import_one(db, item, discovery)
+        finally:
+            await discovery.close()
+        job.status = (
+            "done"
+            if all(item.status in {"done", "duplicate"} for item in items)
+            else "partial"
+        )
+        job.completed_at = datetime.now(UTC)
+        await db.commit()

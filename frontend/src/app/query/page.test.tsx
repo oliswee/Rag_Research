@@ -22,10 +22,11 @@ beforeEach(() => {
   vi.mocked(submitQuery).mockClear();
 });
 
-it("sends the optional rewrite setting with a question", async () => {
+it("uses automatic retrieval while retaining scope filters", async () => {
   render(<QueryPage />);
-  fireEvent.click(screen.getByText("Search scope and retrieval"));
-  fireEvent.click(screen.getByRole("checkbox", { name: /rewrite query/i }));
+  expect(screen.queryByText("Rewrite query with AI")).not.toBeInTheDocument();
+  expect(screen.queryByText("Mode")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("Search filters"));
   const input = screen.getByPlaceholderText("Ask a question about your research...");
   fireEvent.change(input, { target: { value: "What about its latency?" } });
   fireEvent.keyDown(input, { key: "Enter" });
@@ -34,7 +35,10 @@ it("sends the optional rewrite setting with a question", async () => {
     expect(submitQuery).toHaveBeenCalledWith(
       "What about its latency?",
       undefined,
-      expect.objectContaining({ rewrite_query: true }),
+      expect.any(Object),
     ),
   );
+  const options = vi.mocked(submitQuery).mock.calls[0][2];
+  expect(options).not.toHaveProperty("rewrite_query");
+  expect(options).not.toHaveProperty("retrieval_mode");
 });

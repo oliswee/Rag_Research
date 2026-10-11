@@ -160,6 +160,7 @@ class DiscoveryService:
         ids = result.get("idlist", [])
         if not ids:
             return {"candidates": [], "total": int(result.get("count", 0))}
+        await asyncio.sleep(0.36)
         response = await self.client.get(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
             params={"db": "pubmed", "id": ",".join(ids), "retmode": "xml", "tool": "FolioTrace"},

@@ -55,17 +55,8 @@ function LibraryContent() {
 
   // Load papers
   const loadPapers = useCallback(
-    async (resetOffset = false) => {
-      const currentOffset = resetOffset ? 0 : offset;
-
-      if (resetOffset) {
-        setLoading(true);
-        setOffset(0);
-      } else {
-        setLoadingMore(true);
-      }
-
-      setError(null);
+    async (resetOffset = false, requestedOffset = offset) => {
+      const currentOffset = resetOffset ? 0 : requestedOffset;
 
       try {
         const response = await listPapers({
@@ -104,13 +95,17 @@ function LibraryContent() {
 
   // Initial load and filter changes
   useEffect(() => {
-    loadPapers(true);
+    async function refreshPapers() {
+      await loadPapers(true);
+    }
+    void refreshPapers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.status, filters.type]);
 
   // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
+      setLoading(true);
       loadPapers(true);
     }, 300);
     return () => clearTimeout(timer);
@@ -129,16 +124,21 @@ function LibraryContent() {
 
   // Handle load more
   const handleLoadMore = useCallback(() => {
-    setOffset((prev) => prev + ITEMS_PER_PAGE);
-  }, []);
+    const nextOffset = offset + ITEMS_PER_PAGE;
+    setLoadingMore(true);
+    setError(null);
+    setOffset(nextOffset);
+    void loadPapers(false, nextOffset);
+  }, [loadPapers, offset]);
 
-  // Load more when offset changes
-  useEffect(() => {
-    if (offset > 0) {
-      loadPapers(false);
+  const handleFiltersChange = (nextFilters: FilterState) => {
+    if (nextFilters.status !== filters.status || nextFilters.type !== filters.type) {
+      setLoading(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offset]);
+    setError(null);
+    setOffset(0);
+    setFilters(nextFilters);
+  };
 
   // Handle delete
   const handleDelete = useCallback(async () => {
@@ -189,7 +189,7 @@ function LibraryContent() {
       {/* Filters */}
       <FilterBar
         filters={filters}
-        onFiltersChange={setFilters}
+        onFiltersChange={handleFiltersChange}
         disabled={loading}
       />
 

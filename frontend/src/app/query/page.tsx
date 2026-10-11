@@ -17,7 +17,9 @@ export default function QueryPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : sessionStorage.getItem(SESSION_KEY)
+  );
   const [papers, setPapers] = useState<PaperResponse[]>([]);
   const [paperFilter, setPaperFilter] = useState("");
   const [selectedPapers, setSelectedPapers] = useState<string[]>([]);
@@ -27,14 +29,6 @@ export default function QueryPage() {
   const [provider, setProvider] = useState<"" | "openalex" | "semantic_scholar">("");
 
   useEffect(() => { listAllPapers().then(setPapers).catch(() => {}); }, []);
-
-  // Load session ID from sessionStorage
-  useEffect(() => {
-    const stored = sessionStorage.getItem(SESSION_KEY);
-    if (stored) {
-      setSessionId(stored);
-    }
-  }, []);
 
   // Save session ID to sessionStorage
   useEffect(() => {

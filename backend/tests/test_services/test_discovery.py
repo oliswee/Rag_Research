@@ -32,7 +32,9 @@ def _semantic(paper_id: str, doi: str | None = None) -> dict:
     }
 
 
-def _openalex(paper_id: str, doi: str | None = None) -> dict:
+def _openalex(
+    paper_id: str, doi: str | None = None, references: list[str] | None = None
+) -> dict:
     return {
         "id": f"https://openalex.org/{paper_id}",
         "display_name": f"OpenAlex paper {paper_id}",
@@ -47,6 +49,9 @@ def _openalex(paper_id: str, doi: str | None = None) -> dict:
         "cited_by_count": 8,
         "primary_topic": {"display_name": "Information Retrieval"},
         "keywords": [{"display_name": "Search ranking"}],
+        "referenced_works": [
+            f"https://openalex.org/{value}" for value in references or []
+        ],
     }
 
 
@@ -115,3 +120,26 @@ async def test_duplicate_doi_prefers_openalex_for_reliable_import():
         await service.close()
     assert len(result["candidates"]) == 1
     assert result["candidates"][0]["provider"] == "openalex"
+    assert result["candidates"][0]["source_url"] == "https://doi.org/10.1234/shared"
+
+
+@pytest.mark.asyncio
+async def test_result_relationships_and_source_based_roles():
+    older = _openalex("W1")
+    older["publication_year"] = 2016
+    older["cited_by_count"] = 1000
+    recent = _openalex("W2", references=["W1"])
+    recent["publication_year"] = 2026
+    service = DiscoveryService()
+    service._get = AsyncMock(side_effect=[{"data": []}, {"results": [older, recent]}])
+    try:
+        result = await service.search("retrieval accuracy")
+    finally:
+        await service.close()
+    by_id = {paper["provider_id"]: paper for paper in result["candidates"]}
+    assert by_id["W1"]["cited_by_results"] == [
+        {"provider_id": "W2", "title": recent["display_name"]}
+    ]
+    assert "Potential foundation" in by_id["W1"]["role_labels"]
+    assert "Recent" in by_id["W2"]["role_labels"]
+    assert result["themes"] == [{"label": "Information Retrieval", "count": 2}]

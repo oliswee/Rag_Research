@@ -4,6 +4,7 @@ import asyncio
 import math
 import re
 import time
+from collections import Counter
 from datetime import UTC, datetime
 from urllib.parse import quote
 
@@ -95,6 +96,7 @@ def _explain_relevance(candidate: dict, query: str) -> str:
 
 def semantic_candidate(record: dict) -> dict:
     ids = record.get("externalIds") or {}
+    doi = normalize_doi(ids.get("DOI"))
     return {
         "provider": "semantic_scholar",
         "provider_id": record["paperId"],
@@ -102,10 +104,10 @@ def semantic_candidate(record: dict) -> dict:
         "authors": [a["name"] for a in record.get("authors") or [] if a.get("name")],
         "year": record.get("year"),
         "abstract": record.get("abstract"),
-        "source_url": record.get("url"),
+        "source_url": f"https://doi.org/{doi}" if doi else record.get("url"),
         "pdf_url": (record.get("openAccessPdf") or {}).get("url"),
         "open_access": bool(record.get("isOpenAccess") or record.get("openAccessPdf")),
-        "doi": normalize_doi(ids.get("DOI")),
+        "doi": doi,
         "arxiv_id": ids.get("ArXiv"),
         "citation_count": record.get("citationCount"),
         "tags": _tags(record.get("fieldsOfStudy") or []),
@@ -126,7 +128,9 @@ def openalex_candidate(record: dict) -> dict:
         ],
         "year": record.get("publication_year"),
         "abstract": _openalex_abstract(record.get("abstract_inverted_index")),
-        "source_url": record.get("id"),
+        "source_url": record.get("doi")
+        or location.get("landing_page_url")
+        or record.get("id"),
         "pdf_url": location.get("pdf_url"),
         "open_access": bool((record.get("open_access") or {}).get("is_oa")),
         "doi": normalize_doi(record.get("doi")),
@@ -144,6 +148,10 @@ def openalex_candidate(record: dict) -> dict:
         "abstract_summary": _abstract_summary(
             _openalex_abstract(record.get("abstract_inverted_index"))
         ),
+        "_reference_ids": [
+            reference.rsplit("/", 1)[-1]
+            for reference in record.get("referenced_works") or []
+        ],
     }
 
 
@@ -216,7 +224,7 @@ class DiscoveryService:
             "select": (
                 "id,display_name,authorships,publication_year,"
                 "abstract_inverted_index,doi,ids,open_access,best_oa_location,"
-                "cited_by_count,primary_topic,keywords"
+                "cited_by_count,primary_topic,keywords,referenced_works"
             ),
         }
         if filters:
@@ -241,6 +249,7 @@ class DiscoveryService:
                 if open_access and not candidate["open_access"]:
                     continue
                 candidate["relevance_reason"] = _explain_relevance(candidate, query)
+                candidate["_provider_rank"] = rank
                 citations = max(0, candidate.get("citation_count") or 0)
                 age = max(0, datetime.now(UTC).year - (candidate.get("year") or 1800))
                 # Provider rank drives relevance; other signals break ties.
@@ -262,7 +271,77 @@ class DiscoveryService:
             previous = by_identity.get(identity)
             if previous is None or candidate["provider"] == "openalex":
                 by_identity[identity] = candidate
-        return {"candidates": list(by_identity.values())[:limit], "errors": errors}
+        candidates = list(by_identity.values())[:limit]
+        openalex = {
+            candidate["provider_id"]: candidate
+            for candidate in candidates
+            if candidate["provider"] == "openalex"
+        }
+        for candidate in candidates:
+            candidate["cited_by_results"] = []
+        for candidate in openalex.values():
+            for reference_id in candidate.pop("_reference_ids", []):
+                target = openalex.get(reference_id)
+                if target and target is not candidate:
+                    target["cited_by_results"].append(
+                        {
+                            "provider_id": candidate["provider_id"],
+                            "title": candidate["title"],
+                        }
+                    )
+        citation_counts = sorted(
+            candidate["citation_count"]
+            for candidate in candidates
+            if isinstance(candidate.get("citation_count"), int)
+            and candidate["citation_count"] > 0
+        )
+        upper_quartile = (
+            citation_counts[math.ceil(0.75 * len(citation_counts)) - 1]
+            if citation_counts
+            else 0
+        )
+        for candidate in candidates:
+            labels = []
+            year = candidate.get("year")
+            if year and year >= datetime.now(UTC).year - 2:
+                labels.append("Recent")
+            highly_cited = (candidate.get("citation_count") or 0) >= max(
+                10, upper_quartile
+            )
+            if highly_cited:
+                labels.append("Highly cited in results")
+            if candidate["cited_by_results"]:
+                labels.append("Referenced by related results")
+                candidate["rank_score"] += (
+                    min(len(candidate["cited_by_results"]), 3) * 0.03
+                )
+            if (
+                highly_cited
+                and candidate["cited_by_results"]
+                and year
+                and year <= datetime.now(UTC).year - 5
+            ):
+                labels.append("Potential foundation")
+            candidate["role_labels"] = labels
+        candidates.sort(
+            key=lambda candidate: (
+                candidate["_provider_rank"],
+                -candidate["rank_score"],
+            )
+        )
+        for candidate in candidates:
+            candidate.pop("_provider_rank", None)
+        themes = Counter(
+            candidate["tags"][0] for candidate in candidates if candidate["tags"]
+        )
+        return {
+            "candidates": candidates,
+            "errors": errors,
+            "themes": [
+                {"label": label, "count": count}
+                for label, count in themes.most_common(8)
+            ],
+        }
 
     async def get_candidate(self, provider: str, provider_id: str) -> dict:
         if provider == "semantic_scholar":

@@ -12,6 +12,7 @@ export default function DiscoverPage() {
   const [yearTo, setYearTo] = useState("");
   const [openOnly, setOpenOnly] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [themes, setThemes] = useState<{ label: string; count: number }[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [savedKeys, setSavedKeys] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -50,6 +51,7 @@ export default function DiscoverPage() {
         open_access: openOnly,
       });
       setCandidates(result.candidates);
+      setThemes(result.themes);
       setWarnings(result.errors);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Search failed");
@@ -104,6 +106,8 @@ export default function DiscoverPage() {
     {candidates.length > 0 && <section className="mt-10">
       <h2 className="text-2xl font-semibold">Search results</h2>
       <p className="mb-5 text-sm text-muted-foreground">{candidates.length} papers · add any paper to your library</p>
+      {themes.length > 0 && <div className="mb-5 flex flex-wrap items-center gap-2 text-sm"><strong>Related themes:</strong>{themes.map((theme) => <span key={theme.label} className="rounded-full border px-3 py-1">{theme.label} · {theme.count}</span>)}</div>}
+      <p className="mb-5 text-xs text-muted-foreground">Recency, citation, and potential foundation labels describe these search results; they do not rate research quality.</p>
       {selected.length > 0 && <button onClick={() => void addToLibrary(candidates.filter((paper) => selected.includes(`${paper.provider}:${paper.provider_id}`)))} disabled={busy} className="mb-5 rounded-lg bg-foreground px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50">Add {selected.length} selected to library</button>}
       <div className="grid gap-4 md:grid-cols-2">{candidates.map((paper) => {
         const key = `${paper.provider}:${paper.provider_id}`;
@@ -113,7 +117,9 @@ export default function DiscoverPage() {
           <h3 className="text-lg font-semibold leading-snug">{paper.title}</h3>
           <p className="mt-2 text-sm text-muted-foreground">{paper.authors.slice(0, 3).join(", ")}{paper.authors.length > 3 ? " et al." : ""}</p>
           <p className="mt-3 text-sm"><strong>Why shown:</strong> {paper.relevance_reason}</p>
+          {paper.role_labels.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Result signals">{paper.role_labels.map((label) => <span key={label} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-900">{label}</span>)}</div>}
           {paper.tags.length > 0 && <div className="mt-3 flex flex-wrap gap-1" aria-label="Source topics">{paper.tags.map((tag) => <span key={tag} className="rounded-full bg-muted px-2 py-1 text-xs">{tag}</span>)}</div>}
+          {paper.cited_by_results.length > 0 && <p className="mt-3 text-xs text-muted-foreground">Referenced by {paper.cited_by_results.map((related, index) => <span key={related.provider_id}>{index > 0 ? ", " : ""}<a href={`https://openalex.org/${related.provider_id}`} target="_blank" rel="noopener noreferrer" className="underline">{related.title}</a></span>)} in these results.</p>}
           {paper.abstract_summary ? <p className="mt-4 line-clamp-4 text-sm leading-6 text-muted-foreground"><strong>From the abstract:</strong> {paper.abstract_summary}</p> : <p className="mt-4 text-sm text-muted-foreground">No abstract available; summary not provided.</p>}
           <p className="mt-3 text-xs text-muted-foreground">{paper.citation_count == null ? "Citation count unavailable" : `${paper.citation_count} citations reported by source`} · Citation count is one signal, not a quality rating.</p>
           {paper.possible_duplicate_ids.length > 0 && <p className="mt-3 text-xs text-amber-700">Similar title already in library; adding will check identifiers.</p>}

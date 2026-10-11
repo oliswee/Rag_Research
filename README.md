@@ -6,7 +6,7 @@ A local research assistant for discovering papers and tracing answers to source 
 
 ## Current features
 
-- Discover papers through Semantic Scholar and OpenAlex (up to 20 results per search). Results mix both providers when available and show provider topics, an extract from the source abstract, citation counts, and a topic-match explanation. Citation counts are supporting signals, not quality ratings. A provider rate limit leaves the other provider's results visible.
+- Discover papers through Semantic Scholar and OpenAlex (up to 20 results per search). Results mix both providers when available and show provider topics, source-based abstract extracts, related themes, citation counts, and a topic-match explanation. OpenAlex references connect papers within the visible result set. Recent, highly cited, and potential foundation labels are relative signals, not quality ratings. A provider rate limit leaves the other provider's results visible.
 - Click **Add to library** on one result or select several for a batch import. Open PDFs are parsed by page; unavailable PDFs fall back to abstracts or metadata. DOI, arXiv and provider IDs prevent duplicate imports. The library has no fixed paper count limit.
 - Upload PDFs or paste text, and review generated claims where API keys are available.
 - Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix.

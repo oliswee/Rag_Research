@@ -289,7 +289,7 @@ export async function submitFollowUp(
   });
 }
 
-export async function discoverPapers(params: { query: string; year_from?: number; year_to?: number; open_access?: boolean }): Promise<DiscoveryResult> {
+export async function discoverPapers(params: { query: string; year_from?: number; year_to?: number; open_access?: boolean; offset?: number; limit?: number; provider?: string }): Promise<DiscoveryResult> {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
   return request<DiscoveryResult>(`/api/discovery/search?${query}`);

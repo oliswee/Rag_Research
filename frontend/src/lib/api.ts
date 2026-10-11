@@ -18,12 +18,11 @@ import type {
   PatternUpdateRequest,
   QueryResponse,
   DiscoveryResult,
-  ResearcherSearchResult,
-  ResearcherProfile,
   Candidate,
   ImportJob,
   CompareResult,
 } from "@/types";
+import type { ResearcherProfile, ResearcherSearchResult } from "@/types/researcher";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 

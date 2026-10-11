@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ArrowUpRight, Loader2, Search, Users } from "lucide-react";
 import { getResearcher, searchResearchers } from "@/lib/api";
-import type { ResearcherProfile, ResearcherSearchResult } from "@/types";
+import type { ResearcherProfile, ResearcherSearchResult } from "@/types/researcher";
 
 export default function ResearchersPage() {
   const [name, setName] = useState("");

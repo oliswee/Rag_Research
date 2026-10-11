@@ -12,6 +12,8 @@ export default function DiscoverPage() {
   const [yearTo, setYearTo] = useState("");
   const [openOnly, setOpenOnly] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [savedKeys, setSavedKeys] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [searching, setSearching] = useState(false);
@@ -21,7 +23,14 @@ export default function DiscoverPage() {
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
     const timer = window.setInterval(() => {
-      getImport(job.job_id).then(setJob).catch(() => setError("Could not refresh import progress."));
+      getImport(job.job_id).then((updated) => {
+        setJob(updated);
+        setSavedKeys((previous) => Array.from(new Set([
+          ...previous,
+          ...updated.items.filter((item) => ["done", "duplicate"].includes(item.status))
+            .map((item) => `${item.provider}:${item.provider_id}`),
+        ])));
+      }).catch(() => setError("Could not refresh import progress."));
     }, 1500);
     return () => window.clearInterval(timer);
   }, [job]);
@@ -32,6 +41,7 @@ export default function DiscoverPage() {
     setSearching(true);
     setError("");
     setWarnings([]);
+    setSelected([]);
     try {
       const result = await discoverPapers({
         query: query.trim(),
@@ -48,12 +58,13 @@ export default function DiscoverPage() {
     }
   }
 
-  async function addToLibrary(paper: Candidate) {
+  async function addToLibrary(papers: Candidate[]) {
     setSaving(true);
     setError("");
     try {
-      const result = await startImport([paper]);
+      const result = await startImport(papers);
       setJob({ job_id: result.job_id, status: result.status, items: [] });
+      setSelected([]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not add paper to library");
     } finally {
@@ -62,8 +73,7 @@ export default function DiscoverPage() {
   }
 
   const busy = saving || job?.status === "queued" || job?.status === "running";
-  const saved = new Set(job?.items.filter((item) => ["done", "duplicate"].includes(item.status))
-    .map((item) => `${item.provider}:${item.provider_id}`) ?? []);
+  const saved = new Set(savedKeys);
 
   return <main className="mx-auto max-w-6xl px-4 py-10 md:py-16">
     <header className="mb-10 max-w-3xl">
@@ -94,8 +104,10 @@ export default function DiscoverPage() {
     {candidates.length > 0 && <section className="mt-10">
       <h2 className="text-2xl font-semibold">Search results</h2>
       <p className="mb-5 text-sm text-muted-foreground">{candidates.length} papers · add any paper to your library</p>
+      {selected.length > 0 && <button onClick={() => void addToLibrary(candidates.filter((paper) => selected.includes(`${paper.provider}:${paper.provider_id}`)))} disabled={busy} className="mb-5 rounded-lg bg-foreground px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50">Add {selected.length} selected to library</button>}
       <div className="grid gap-4 md:grid-cols-2">{candidates.map((paper) => {
-        const paperSaved = saved.has(`${paper.provider}:${paper.provider_id}`);
+        const key = `${paper.provider}:${paper.provider_id}`;
+        const paperSaved = saved.has(key);
         return <article key={`${paper.provider}:${paper.provider_id}`} className="rounded-xl border bg-card p-5">
           <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><span>{paper.provider === "openalex" ? "OpenAlex" : "Semantic Scholar"} · {paper.year || "Year unknown"}</span><span>{paper.pdf_url ? "Open PDF" : paper.abstract ? "Abstract" : "Metadata only"}</span></div>
           <h3 className="text-lg font-semibold leading-snug">{paper.title}</h3>
@@ -105,7 +117,7 @@ export default function DiscoverPage() {
           {paper.abstract_summary ? <p className="mt-4 line-clamp-4 text-sm leading-6 text-muted-foreground"><strong>From the abstract:</strong> {paper.abstract_summary}</p> : <p className="mt-4 text-sm text-muted-foreground">No abstract available; summary not provided.</p>}
           <p className="mt-3 text-xs text-muted-foreground">{paper.citation_count == null ? "Citation count unavailable" : `${paper.citation_count} citations reported by source`} · Citation count is one signal, not a quality rating.</p>
           {paper.possible_duplicate_ids.length > 0 && <p className="mt-3 text-xs text-amber-700">Similar title already in library; adding will check identifiers.</p>}
-          <div className="mt-5 flex items-center justify-between gap-2"><button onClick={() => void addToLibrary(paper)} disabled={busy || paperSaved} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50"><BookOpen className="h-4 w-4" />{paperSaved ? "In library" : "Add to library"}</button>{paper.source_url && <a href={paper.source_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-medium underline">Source <ArrowUpRight className="h-4 w-4" /></a>}</div>
+          <div className="mt-5 flex flex-wrap items-center gap-3"><button onClick={() => void addToLibrary([paper])} disabled={busy || paperSaved} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50"><BookOpen className="h-4 w-4" />{paperSaved ? "In library" : "Add to library"}</button><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.includes(key)} disabled={busy || paperSaved} onChange={() => setSelected((previous) => previous.includes(key) ? previous.filter((value) => value !== key) : [...previous, key])} /> Select for batch</label>{paper.source_url && <a href={paper.source_url} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-sm font-medium underline">Source <ArrowUpRight className="h-4 w-4" /></a>}</div>
         </article>;
       })}</div>
     </section>}

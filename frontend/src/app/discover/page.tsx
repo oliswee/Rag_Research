@@ -179,7 +179,7 @@ export default function DiscoverPage() {
         const key = `${paper.provider}:${paper.provider_id}`;
         const paperSaved = saved.has(key);
         return <article key={`${paper.provider}:${paper.provider_id}`} className="rounded-xl border bg-card p-5">
-          <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><span>{sourceNames[paper.provider]} · {paper.year || "Year unknown"}</span><span>{paper.pdf_url ? "Open PDF" : paper.abstract ? "Abstract" : "Metadata only"}</span></div>
+          <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><span>{sourceNames[paper.provider]} · {paper.year || "Year unknown"}</span><span>{paper.pdf_url ? "Open PDF" : paper.abstract ? "Abstract preview" : "Metadata only"}</span></div>
           <h3 className="text-lg font-semibold leading-snug">{paper.title}</h3>
           <p className="mt-2 text-sm text-muted-foreground">{paper.authors.slice(0, 3).join(", ")}{paper.authors.length > 3 ? " et al." : ""}</p>
           <p className="mt-3 text-sm"><strong>Why shown:</strong> {paper.relevance_reason}</p>

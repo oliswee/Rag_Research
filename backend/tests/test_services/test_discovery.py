@@ -5,7 +5,52 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app.services.discovery import DiscoveryService, _abstract_summary
+from app.services.discovery import DiscoveryService, _abstract_summary, route_sources
+
+
+def test_query_router_selects_domain_sources_without_user_mode():
+    assert route_sources("How does retrieval improve education?") == (
+        "semantic_scholar",
+        "openalex",
+    )
+    assert route_sources("transformer neural network language model") == (
+        "semantic_scholar",
+        "openalex",
+        "arxiv",
+    )
+    assert route_sources("clinical cancer immunotherapy trial") == (
+        "openalex",
+        "pubmed",
+    )
+    assert route_sources("machine learning for cancer diagnosis") == (
+        "semantic_scholar",
+        "openalex",
+        "pubmed",
+        "arxiv",
+    )
+    assert "arxiv" in route_sources("AI research on LLM evaluation")
+    assert "pubmed" in route_sources("protein folding in biology")
+
+
+@pytest.mark.asyncio
+async def test_visible_results_rerank_strong_title_match_above_provider_order():
+    service = DiscoveryService()
+    unrelated = _semantic("s1")
+    unrelated["title"] = "Unrelated methods"
+    matched = _semantic("s2")
+    matched["title"] = "Education policy outcomes"
+    service._get = AsyncMock(
+        side_effect=[
+            {"data": [unrelated, matched], "total": 2},
+            {"results": [], "meta": {"count": 0}},
+        ]
+    )
+    try:
+        result = await service.search("education policy", limit=2)
+    finally:
+        await service.close()
+    assert result["candidates"][0]["provider_id"] == "s2"
+    assert result["candidates"][0]["rank_score"] > result["candidates"][1]["rank_score"]
 
 
 def test_abstract_summary_omits_bibliographic_lead_in():
@@ -78,6 +123,9 @@ async def test_search_balances_providers_and_includes_grounded_insights():
     assert all(paper["relevance_reason"] for paper in result["candidates"])
     assert all(paper["abstract_summary"] for paper in result["candidates"])
     assert any(paper["tags"] for paper in result["candidates"])
+    assert result["searched_sources"] == ["semantic_scholar", "openalex"]
+    assert result["failed_sources"] == []
+    assert result["search_latency_ms"] >= 0
 
 
 @pytest.mark.asyncio
@@ -107,6 +155,7 @@ async def test_search_explains_rate_limit_and_keeps_other_source():
     assert "429" in result["errors"][0]
     assert "rate limit" in result["errors"][0].lower()
     assert "HTTPStatusError" not in result["errors"][0]
+    assert result["failed_sources"] == ["semantic_scholar"]
 
 
 @pytest.mark.asyncio
@@ -159,16 +208,16 @@ async def test_load_more_cursor_keeps_unconsumed_pubmed_results():
     pubmed = {
         "provider": "pubmed",
         "provider_id": "12345",
-        "title": "PubMed retrieval",
+        "title": "Biomedical paper",
         "authors": [],
         "year": 2024,
-        "abstract": "A retrieval study.",
+        "abstract": "A biomedical study.",
         "source_url": "https://pubmed.ncbi.nlm.nih.gov/12345/",
         "pdf_url": None,
         "open_access": False,
         "doi": None,
         "citation_count": None,
-        "tags": ["Information Retrieval"],
+        "tags": ["Biomedical"],
     }
     service._get = AsyncMock(
         side_effect=[
@@ -187,9 +236,9 @@ async def test_load_more_cursor_keeps_unconsumed_pubmed_results():
     )
     service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
     try:
-        first = await service.search("retrieval", limit=2)
+        first = await service.search("clinical machine learning", limit=2)
         second = await service.search(
-            "retrieval", limit=2, offsets=first["next_offsets"]
+            "clinical machine learning", limit=2, offsets=first["next_offsets"]
         )
     finally:
         await service.close()
@@ -229,7 +278,7 @@ async def test_arxiv_result_is_importable_and_cursor_advances():
         return_value={"results": [arxiv], "total": 2, "fetched_count": 1}
     )
     try:
-        result = await service.search("retrieval", limit=1)
+        result = await service.search("machine learning retrieval", limit=1)
     finally:
         await service.close()
     assert result["candidates"][0]["provider"] == "arxiv"

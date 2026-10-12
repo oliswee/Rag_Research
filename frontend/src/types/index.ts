@@ -225,6 +225,20 @@ export interface DiscoveryResult {
   next_offsets: { semantic_scholar: number; openalex: number; pubmed: number; arxiv: number };
   has_more: boolean;
 }
+export interface PaperContextResult {
+  metadata: {
+    source: "Crossref";
+    doi: string;
+    venue: string | null;
+    publisher: string | null;
+    type: string | null;
+    published: string | null;
+    reference_count: number | null;
+  } | null;
+  citing_papers: { source: "Semantic Scholar"; title: string; year: number | null; url: string }[];
+  references: { source: "OpenAlex"; title: string; year: number | null; url: string }[];
+  errors: string[];
+}
 export interface ImportJob {
   job_id: string;
   status: string;

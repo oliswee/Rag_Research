@@ -1,5 +1,6 @@
 """Search public academic APIs and queue selected records for local import."""
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models import ImportItem, ImportJob, Paper
 from app.services.discovery import DiscoveryService, normalize_title
+from app.services.metadata_context import get_paper_context
 from app.workflows.discovery_import import process_job
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
@@ -64,6 +66,26 @@ async def search_papers(
             normalize_title(candidate["title"]), []
         )[:3]
     return result
+
+
+@router.get("/context")
+async def paper_context(
+    provider: str = Query(pattern="^(semantic_scholar|openalex|pubmed|arxiv)$"),
+    provider_id: str = Query(min_length=1, max_length=500),
+) -> dict:
+    """Fetch citation details only when a visitor opens a paper's context."""
+    service = DiscoveryService()
+    try:
+        return await get_paper_context(service, provider, provider_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        status = 404 if exc.response.status_code == 404 else 502
+        raise HTTPException(status, "Paper source unavailable") from exc
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        raise HTTPException(502, "Paper source unavailable") from exc
+    finally:
+        await service.close()
 
 
 @router.post("/import", status_code=202)

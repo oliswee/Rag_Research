@@ -55,7 +55,6 @@ class Settings(BaseSettings):
     ncbi_api_key: str = ""
     ncbi_email: str = ""
     unpaywall_email: str = ""
-    core_api_key: str = ""
 
     # LLM Settings
     anthropic_model: str = ModelID.SONNET_4

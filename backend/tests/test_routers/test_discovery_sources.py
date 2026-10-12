@@ -15,7 +15,7 @@ def test_arxiv_selection_creates_import_job(client_with_db, monkeypatch):
     assert response.json()["estimated_api_calls"] == 1
 
 
-def test_context_endpoint_returns_source_attributed_references(
+def test_context_endpoint_accepts_doi_and_returns_only_crossref_metadata(
     client_with_db, monkeypatch
 ):
     monkeypatch.setattr(
@@ -24,22 +24,20 @@ def test_context_endpoint_returns_source_attributed_references(
         AsyncMock(
             return_value={
                 "metadata": {"source": "Crossref", "venue": "Research Journal"},
-                "citing_papers": [],
-                "references": [
-                    {
-                        "source": "OpenAlex",
-                        "title": "A source",
-                        "url": "https://openalex.org/W1",
-                        "year": 2020,
-                    }
-                ],
                 "errors": [],
             }
         ),
     )
     response = client_with_db.get(
         "/api/discovery/context",
-        params={"provider": "arxiv", "provider_id": "2401.12345"},
+        params={"doi": "10.1234/example"},
     )
     assert response.status_code == 200
-    assert response.json()["references"][0]["source"] == "OpenAlex"
+    assert response.json()["metadata"]["source"] == "Crossref"
+    assert "references" not in response.json()
+    assert discovery.get_paper_context.await_args.args[1] == "10.1234/example"
+
+
+def test_context_endpoint_rejects_invalid_doi(client_with_db):
+    response = client_with_db.get("/api/discovery/context", params={"doi": "not-a-doi"})
+    assert response.status_code == 422

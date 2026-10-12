@@ -296,8 +296,8 @@ export async function discoverPapers(params: { query: string; year_from?: number
   return request<DiscoveryResult>(`/api/discovery/search?${query}`);
 }
 
-export async function getPaperContext(provider: Candidate["provider"], providerId: string): Promise<PaperContextResult> {
-  const query = new URLSearchParams({ provider, provider_id: providerId });
+export async function getPaperContext(doi: string): Promise<PaperContextResult> {
+  const query = new URLSearchParams({ doi });
   return request<PaperContextResult>(`/api/discovery/context?${query}`);
 }
 

@@ -1,4 +1,4 @@
-"""Citation context is retrieved on demand and attributed to each provider."""
+"""DOI context makes one optional Crossref lookup."""
 
 from unittest.mock import AsyncMock
 
@@ -10,100 +10,54 @@ from app.services.metadata_context import get_paper_context
 
 
 @pytest.mark.asyncio
-async def test_context_combines_crossref_s2_citations_and_openalex_references():
+async def test_context_uses_only_crossref_for_doi():
     service = DiscoveryService()
-    service.get_candidate = AsyncMock(
+    service._get = AsyncMock(
         return_value={
-            "provider": "openalex",
-            "provider_id": "W123",
-            "title": "Selected",
-            "doi": "10.1234/example",
-            "_reference_ids": ["W456"],
+            "message": {
+                "DOI": "10.1234/example",
+                "container-title": ["Research Journal"],
+                "publisher": "Example Press",
+                "references-count": 6,
+            }
         }
     )
-
-    async def fake_get(url, params=None):
-        if "crossref.org" in url:
-            assert params is None
-            return {
-                "message": {
-                    "DOI": "10.1234/example",
-                    "container-title": ["Research Journal"],
-                    "publisher": "Example Press",
-                    "type": "journal-article",
-                    "published": {"date-parts": [[2024, 2, 3]]},
-                    "references-count": 6,
-                }
-            }
-        if "semanticscholar.org" in url:
-            return {
-                "data": [
-                    {
-                        "citingPaper": {
-                            "paperId": "abc123",
-                            "title": "Citing study",
-                            "year": 2025,
-                        }
-                    }
-                ]
-            }
-        if "openalex.org" in url:
-            assert params["filter"] == "openalex:W456"
-            return {
-                "results": [
-                    {
-                        "id": "https://openalex.org/W456",
-                        "display_name": "Referenced study",
-                        "publication_year": 2020,
-                    }
-                ]
-            }
-        raise AssertionError(url)
-
-    service._get = AsyncMock(side_effect=fake_get)
     try:
-        context = await get_paper_context(service, "openalex", "W123")
+        context = await get_paper_context(service, "10.1234/example")
     finally:
         await service.close()
     assert context["metadata"]["venue"] == "Research Journal"
     assert context["metadata"]["source"] == "Crossref"
-    assert (
-        context["citing_papers"][0]["url"]
-        == "https://www.semanticscholar.org/paper/abc123"
-    )
-    assert context["references"][0]["url"] == "https://openalex.org/W456"
     assert context["errors"] == []
+    service._get.assert_awaited_once_with(
+        "https://api.crossref.org/works/10.1234/example"
+    )
 
 
 @pytest.mark.asyncio
-async def test_context_preserves_other_sources_on_semantic_scholar_429():
+async def test_crossref_404_is_missing_metadata_and_429_is_sanitized():
     service = DiscoveryService()
-    service.get_candidate = AsyncMock(
-        return_value={
-            "provider": "pubmed",
-            "provider_id": "123",
-            "doi": "10.1234/example",
-            "title": "Selected",
-        }
-    )
-
-    async def fake_get(url, params=None):
-        if "semanticscholar.org" in url:
-            response = httpx.Response(429, request=httpx.Request("GET", url))
-            raise httpx.HTTPStatusError(
-                "rate limited", request=response.request, response=response
-            )
-        if "crossref.org" in url:
-            return {"message": {"DOI": "10.1234/example", "publisher": "Example Press"}}
-        if "openalex.org" in url:
-            return {"referenced_works": []}
-        raise AssertionError(url)
-
-    service._get = AsyncMock(side_effect=fake_get)
     try:
-        context = await get_paper_context(service, "pubmed", "123")
+        for status in (404, 429):
+            response = httpx.Response(
+                status,
+                request=httpx.Request(
+                    "GET", "https://api.crossref.org/works/10.1234/example"
+                ),
+            )
+            service._get = AsyncMock(
+                side_effect=httpx.HTTPStatusError(
+                    "private request detail",
+                    request=response.request,
+                    response=response,
+                )
+            )
+            context = await get_paper_context(service, "10.1234/example")
+            assert context["metadata"] is None
+            assert context["errors"] == (
+                []
+                if status == 404
+                else ["Crossref: 429 rate limit reached; retry later"]
+            )
     finally:
         await service.close()
-    assert context["metadata"]["publisher"] == "Example Press"
-    assert context["citing_papers"] == []
-    assert "429" in context["errors"][0]

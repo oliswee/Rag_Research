@@ -96,12 +96,11 @@ def route_sources(query: str) -> tuple[str, ...]:
     medical = any(f" {term} " in topic for term in _MEDICAL_TERMS)
     if medical and not ai:
         return "openalex", "pubmed"
-    sources = ["semantic_scholar", "openalex"]
-    if medical:
-        sources.append("pubmed")
-    if ai:
-        sources.append("arxiv")
-    return tuple(sources)
+    if ai and not medical:
+        return "semantic_scholar", "arxiv"
+    if ai and medical:
+        return "semantic_scholar", "openalex", "pubmed", "arxiv"
+    return "semantic_scholar", "openalex"
 
 
 def normalize_doi(value: str | None) -> str | None:
@@ -162,7 +161,7 @@ def _provider_error(name: str, error: BaseException) -> str:
     if isinstance(error, httpx.HTTPStatusError):
         status = error.response.status_code
         if status == 429:
-            return f"{name}: 429 rate limit reached; retry later or add an API key"
+            return f"{name}: 429 rate limit reached; retry later"
         return f"{name}: HTTP {status} from the provider"
     if isinstance(error, httpx.TimeoutException):
         return f"{name}: request timed out"
@@ -250,10 +249,6 @@ def openalex_candidate(record: dict) -> dict:
         "abstract_summary": _abstract_summary(
             _openalex_abstract(record.get("abstract_inverted_index"))
         ),
-        "_reference_ids": [
-            reference.rsplit("/", 1)[-1]
-            for reference in record.get("referenced_works") or []
-        ],
     }
 
 
@@ -396,7 +391,7 @@ class DiscoveryService:
             "select": (
                 "id,display_name,authorships,publication_year,"
                 "abstract_inverted_index,doi,ids,open_access,best_oa_location,"
-                "cited_by_count,primary_topic,keywords,referenced_works"
+                "cited_by_count,primary_topic,keywords"
             ),
         }
         if filters:
@@ -512,23 +507,6 @@ class DiscoveryService:
                 by_identifier[key] = existing
             if len(candidates) >= limit:
                 break
-        openalex = {
-            candidate["provider_id"]: candidate
-            for candidate in candidates
-            if candidate["provider"] == "openalex"
-        }
-        for candidate in candidates:
-            candidate["cited_by_results"] = []
-        for candidate in openalex.values():
-            for reference_id in candidate.pop("_reference_ids", []):
-                target = openalex.get(reference_id)
-                if target and target is not candidate:
-                    target["cited_by_results"].append(
-                        {
-                            "provider_id": candidate["provider_id"],
-                            "title": candidate["title"],
-                        }
-                    )
         citation_counts = sorted(
             candidate["citation_count"]
             for candidate in candidates
@@ -550,18 +528,6 @@ class DiscoveryService:
             )
             if highly_cited:
                 labels.append("Highly cited in results")
-            if candidate["cited_by_results"]:
-                labels.append("Referenced by related results")
-                candidate["rank_score"] += (
-                    min(len(candidate["cited_by_results"]), 3) * 0.03
-                )
-            if (
-                highly_cited
-                and candidate["cited_by_results"]
-                and year
-                and year <= datetime.now(UTC).year - 5
-            ):
-                labels.append("Potential foundation")
             candidate["role_labels"] = labels
         candidates.sort(
             key=lambda candidate: (

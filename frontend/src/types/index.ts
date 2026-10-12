@@ -214,7 +214,6 @@ export interface Candidate {
   relevance_reason: string;
   rank_score: number;
   role_labels: string[];
-  cited_by_results: { provider_id: string; title: string }[];
   possible_duplicate_ids: string[];
 }
 
@@ -238,8 +237,6 @@ export interface PaperContextResult {
     published: string | null;
     reference_count: number | null;
   } | null;
-  citing_papers: { source: "Semantic Scholar"; title: string; year: number | null; url: string }[];
-  references: { source: "OpenAlex"; title: string; year: number | null; url: string }[];
   errors: string[];
 }
 export interface ImportJob {

@@ -15,7 +15,6 @@ def test_query_router_selects_domain_sources_without_user_mode():
     )
     assert route_sources("transformer neural network language model") == (
         "semantic_scholar",
-        "openalex",
         "arxiv",
     )
     assert route_sources("clinical cancer immunotherapy trial") == (
@@ -28,8 +27,45 @@ def test_query_router_selects_domain_sources_without_user_mode():
         "pubmed",
         "arxiv",
     )
-    assert "arxiv" in route_sources("AI research on LLM evaluation")
+    assert route_sources("AI research on LLM evaluation") == (
+        "semantic_scholar",
+        "arxiv",
+    )
     assert "pubmed" in route_sources("protein folding in biology")
+
+
+@pytest.mark.asyncio
+async def test_specialist_search_calls_only_its_two_sources():
+    service = DiscoveryService()
+    service._get = AsyncMock(return_value={"data": [], "total": 0})
+    service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
+    service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
+    try:
+        result = await service.search("transformer neural network")
+    finally:
+        await service.close()
+    assert result["searched_sources"] == ["semantic_scholar", "arxiv"]
+    assert service._get.await_count == 1
+    assert "api.semanticscholar.org" in service._get.await_args.args[0]
+    service._search_arxiv.assert_awaited_once()
+    service._search_pubmed.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_medical_search_skips_semantic_scholar_and_arxiv():
+    service = DiscoveryService()
+    service._get = AsyncMock(return_value={"results": [], "meta": {"count": 0}})
+    service._search_pubmed = AsyncMock(return_value={"results": [], "total": 0})
+    service._search_arxiv = AsyncMock(return_value={"results": [], "total": 0})
+    try:
+        result = await service.search("clinical cancer therapy")
+    finally:
+        await service.close()
+    assert result["searched_sources"] == ["openalex", "pubmed"]
+    assert service._get.await_count == 1
+    assert service._get.await_args.args[0] == "https://api.openalex.org/works"
+    service._search_pubmed.assert_awaited_once()
+    service._search_arxiv.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -179,7 +215,7 @@ async def test_duplicate_doi_prefers_openalex_for_reliable_import():
 
 
 @pytest.mark.asyncio
-async def test_result_relationships_and_source_based_roles():
+async def test_source_based_roles_without_reference_graph_lookup():
     older = _openalex("W1")
     older["publication_year"] = 2016
     older["cited_by_count"] = 1000
@@ -194,12 +230,11 @@ async def test_result_relationships_and_source_based_roles():
     finally:
         await service.close()
     by_id = {paper["provider_id"]: paper for paper in result["candidates"]}
-    assert by_id["W1"]["cited_by_results"] == [
-        {"provider_id": "W2", "title": recent["display_name"]}
-    ]
-    assert "Potential foundation" in by_id["W1"]["role_labels"]
+    assert "cited_by_results" not in by_id["W1"]
+    assert "Highly cited in results" in by_id["W1"]["role_labels"]
     assert "Recent" in by_id["W2"]["role_labels"]
     assert result["themes"] == [{"label": "Information Retrieval", "count": 2}]
+    assert "referenced_works" not in service._get.call_args_list[1].args[1]["select"]
 
 
 @pytest.mark.asyncio

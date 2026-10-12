@@ -87,50 +87,12 @@ async def test_provider_error_does_not_expose_request_credentials(
 
 
 @pytest.mark.asyncio
-async def test_import_uses_europe_pmc_open_xml_when_provider_has_no_pdf(
-    async_db_session, monkeypatch
-):
-    class FakeResolver:
-        async def find(self, candidate):
-            return (
-                [
-                    FullTextLocation(
-                        "Europe PMC",
-                        "xml",
-                        "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC123/fullTextXML",
-                        "https://europepmc.org/articles/PMC123",
-                    )
-                ],
-                [],
-            )
-
-        async def fetch_xml(self, location):
-            return "The full article describes the methods and results."
-
-        async def close(self):
-            pass
-
-    monkeypatch.setattr(discovery_import, "FullTextResolver", FakeResolver)
-    job = ImportJob()
-    async_db_session.add(job)
-    await async_db_session.flush()
-    item = ImportItem(job_id=job.id, provider="pubmed", provider_id="123", candidate={})
-    async_db_session.add(item)
-    await async_db_session.flush()
-    await import_one(async_db_session, item, FakeDiscovery())
-    chunk = (await async_db_session.execute(select(PaperChunk))).scalar_one()
-    assert item.content_scope == "full_text"
-    assert chunk.source_url == "https://europepmc.org/articles/PMC123"
-    assert chunk.page_start is None
-
-
-@pytest.mark.asyncio
 async def test_import_keeps_abstract_when_all_open_locations_fail(
     async_db_session, monkeypatch
 ):
     class FakeResolver:
         async def find(self, candidate):
-            return ([], ["CORE: 429 rate limit reached"])
+            return ([], ["Unpaywall: 429 rate limit reached"])
 
         async def close(self):
             pass
@@ -144,7 +106,7 @@ async def test_import_keeps_abstract_when_all_open_locations_fail(
     await async_db_session.flush()
     await import_one(async_db_session, item, FakeDiscovery())
     assert item.content_scope == "abstract"
-    assert "CORE: 429" in item.warning
+    assert "Unpaywall: 429" in item.warning
 
 
 @pytest.mark.asyncio
@@ -157,7 +119,6 @@ async def test_import_uses_unpaywall_pdf_with_page_evidence(
                 [
                     FullTextLocation(
                         "Unpaywall",
-                        "pdf",
                         "https://repo.example.org/open.pdf",
                         "https://repo.example.org/open.pdf",
                     )

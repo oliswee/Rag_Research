@@ -89,14 +89,11 @@ async def import_one(
                 warnings.extend(lookup_warnings)
                 for location in locations:
                     try:
-                        if location.kind == "pdf":
-                            payload = await download_pdf(location.url)
-                            parsed = PDFParserService(
-                                max_pages=min(settings.max_pdf_pages, 200)
-                            ).parse(payload)
-                            pages = [(page.text, page.number) for page in parsed.pages]
-                        else:
-                            pages = [(await resolver.fetch_xml(location), None)]
+                        payload = await download_pdf(location.url)
+                        parsed = PDFParserService(
+                            max_pages=min(settings.max_pdf_pages, 200)
+                        ).parse(payload)
+                        pages = [(page.text, page.number) for page in parsed.pages]
                         if not any(text.strip() for text, _ in pages):
                             raise ValueError("Open copy contains no extractable text")
                         scope = "full_text"

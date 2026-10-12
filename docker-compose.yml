@@ -23,7 +23,6 @@ services:
       - NCBI_API_KEY=${NCBI_API_KEY:-}
       - NCBI_EMAIL=${NCBI_EMAIL:-}
       - UNPAYWALL_EMAIL=${UNPAYWALL_EMAIL:-}
-      - CORE_API_KEY=${CORE_API_KEY:-}
       - DATABASE_URL=sqlite:///./data/research.db
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333

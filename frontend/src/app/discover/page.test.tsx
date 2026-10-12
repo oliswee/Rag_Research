@@ -13,7 +13,7 @@ vi.mock("@/lib/api", () => {
     doi: null, citation_count: 2, tags: ["Information Retrieval"],
     relevance_reason: "Matches topic terms: retrieval.", rank_score: 1,
     possible_duplicate_ids: [],
-    role_labels: ["Recent"], cited_by_results: [],
+    role_labels: ["Recent"],
   };
   return {
   discoverPapers: vi.fn().mockResolvedValue({
@@ -73,7 +73,7 @@ it("loads the next batch without duplicating papers and filters by a selected ta
     candidates: [{ provider: "openalex", provider_id: "W1", title: "First paper", authors: [], year: 2024,
       abstract: "First abstract", abstract_summary: "First abstract", source_url: null, pdf_url: null,
       open_access: false, doi: "10.1234/first", citation_count: 1, tags: ["Biology"],
-      relevance_reason: "Matches biology.", rank_score: 1, possible_duplicate_ids: [], role_labels: [], cited_by_results: [] }],
+      relevance_reason: "Matches biology.", rank_score: 1, possible_duplicate_ids: [], role_labels: [] }],
   };
   const second: DiscoveryResult = {
     ...first, has_more: false,
@@ -101,7 +101,7 @@ it("combines topic filters that differ only by case", async () => {
     authors: [], year: 2024, abstract: null, abstract_summary: null,
     source_url: null, pdf_url: null, open_access: false, doi: null,
     citation_count: null, tags: ["Genetics"], relevance_reason: "Source result.",
-    rank_score: 1, possible_duplicate_ids: [], role_labels: [], cited_by_results: [],
+    rank_score: 1, possible_duplicate_ids: [], role_labels: [],
   };
   vi.mocked(discoverPapers).mockResolvedValueOnce({
     candidates: [paper, { ...paper, provider_id: "W2", title: "Second genetics paper", tags: ["genetics"] }],
@@ -124,7 +124,7 @@ it("shows arXiv papers as a searchable source", async () => {
     abstract_summary: "Preprint abstract.", source_url: "https://arxiv.org/abs/2401.12345",
     pdf_url: "https://arxiv.org/pdf/2401.12345", open_access: true, doi: null,
     citation_count: null, tags: ["cs.IR"], relevance_reason: "Matches retrieval.",
-    rank_score: 1, possible_duplicate_ids: [], role_labels: [], cited_by_results: [],
+    rank_score: 1, possible_duplicate_ids: [], role_labels: [],
   };
   vi.mocked(discoverPapers).mockResolvedValueOnce({
     candidates: [paper], errors: [], themes: [], has_more: false,

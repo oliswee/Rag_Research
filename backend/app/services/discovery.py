@@ -49,6 +49,59 @@ _QUESTION_WORDS = {
     "with",
     "would",
 }
+_AI_TERMS = {
+    "ai",
+    "algorithm",
+    "artificial intelligence",
+    "computer science",
+    "deep learning",
+    "computer vision",
+    "language model",
+    "llm",
+    "machine learning",
+    "neural",
+    "nlp",
+    "rag",
+    "retrieval augmented generation",
+    "robotics",
+    "software",
+    "transformer",
+}
+_MEDICAL_TERMS = {
+    "biomedical",
+    "biology",
+    "cancer",
+    "clinical",
+    "diagnosis",
+    "disease",
+    "drug",
+    "genomics",
+    "health",
+    "healthcare",
+    "immunotherapy",
+    "medicine",
+    "medical",
+    "patient",
+    "pubmed",
+    "protein",
+    "therapy",
+    "trial",
+}
+
+
+def route_sources(query: str) -> tuple[str, ...]:
+    """Choose broad and specialist sources with deterministic topic cues."""
+    topic = " " + " ".join(re.findall(r"[\w-]+", query.casefold())) + " "
+    ai = any(f" {term} " in topic for term in _AI_TERMS)
+    medical = any(f" {term} " in topic for term in _MEDICAL_TERMS)
+    if medical and not ai:
+        return "openalex", "pubmed"
+    sources = ["semantic_scholar", "openalex"]
+    if medical:
+        sources.append("pubmed")
+    if ai:
+        sources.append("arxiv")
+    return tuple(sources)
 
 
 def normalize_doi(value: str | None) -> str | None:
@@ -127,6 +180,20 @@ def _explain_relevance(candidate: dict, query: str) -> str:
     if matched:
         return "Matches topic terms: " + ", ".join(sorted(matched)[:4]) + "."
     return "Returned by the academic source; inspect the abstract for relevance."
+
+
+def _query_match_score(candidate: dict, query: str) -> float:
+    terms = set(re.findall(r"[\w-]{3,}", query.casefold())) - _QUESTION_WORDS
+    if not terms:
+        return 0.0
+    title = set(re.findall(r"[\w-]+", candidate["title"].casefold()))
+    abstract = set(re.findall(r"[\w-]+", (candidate.get("abstract") or "").casefold()))
+    tags = set(re.findall(r"[\w-]+", " ".join(candidate["tags"]).casefold()))
+    return (
+        0.75 * len(terms & title)
+        + 0.25 * len(terms & abstract)
+        + 0.15 * len(terms & tags)
+    ) / len(terms)
 
 
 def semantic_candidate(record: dict) -> dict:
@@ -297,6 +364,7 @@ class DiscoveryService:
         limit: int = 20,
         offsets: dict[str, int] | None = None,
     ) -> dict:
+        started_at = time.perf_counter()
         limit = max(1, min(limit, 20))
         offsets = offsets or {}
         start = {
@@ -333,33 +401,37 @@ class DiscoveryService:
         }
         if filters:
             openalex_params["filter"] = ",".join(filters)
-        calls = await asyncio.gather(
-            self._get(
+        sources = route_sources(query)
+        jobs = {
+            "semantic_scholar": lambda: self._get(
                 "https://api.semanticscholar.org/graph/v1/paper/search", semantic_params
             ),
-            self._get("https://api.openalex.org/works", openalex_params),
-            self._search_pubmed(query, limit, start["pubmed"], year_from, year_to),
-            self._search_arxiv(query, limit, start["arxiv"]),
-            return_exceptions=True,
+            "openalex": lambda: self._get(
+                "https://api.openalex.org/works", openalex_params
+            ),
+            "pubmed": lambda: self._search_pubmed(
+                query, limit, start["pubmed"], year_from, year_to
+            ),
+            "arxiv": lambda: self._search_arxiv(query, limit, start["arxiv"]),
+        }
+        calls = await asyncio.gather(
+            *(jobs[source]() for source in sources), return_exceptions=True
         )
-        ranked, errors = [], []
+        ranked, errors, failed_sources = [], [], []
         next_offsets = start.copy()
         more_by_source = {}
         fetched_by_source = {}
-        for name, source, outcome, key, normalizer in (
-            (
-                "Semantic Scholar",
-                "semantic_scholar",
-                calls[0],
-                "data",
-                semantic_candidate,
-            ),
-            ("OpenAlex", "openalex", calls[1], "results", openalex_candidate),
-            ("PubMed", "pubmed", calls[2], "results", lambda record: record),
-            ("arXiv", "arxiv", calls[3], "results", lambda record: record),
-        ):
+        source_details = {
+            "semantic_scholar": ("Semantic Scholar", "data", semantic_candidate),
+            "openalex": ("OpenAlex", "results", openalex_candidate),
+            "pubmed": ("PubMed", "results", lambda record: record),
+            "arxiv": ("arXiv", "results", lambda record: record),
+        }
+        for source, outcome in zip(sources, calls, strict=True):
+            name, key, normalizer = source_details[source]
             if isinstance(outcome, BaseException):
                 errors.append(_provider_error(name, outcome))
+                failed_sources.append(source)
                 continue
             records = outcome.get(key, [])
             if source == "openalex":
@@ -398,9 +470,11 @@ class DiscoveryService:
                 candidate["_provider_rank"] = rank
                 citations = max(0, candidate.get("citation_count") or 0)
                 age = max(0, datetime.now(UTC).year - (candidate.get("year") or 1800))
-                # Provider rank drives relevance; other signals break ties.
+                # Rerank the retrieved page using topic evidence, provider order,
+                # and small citation and recency tie breakers.
                 candidate["rank_score"] = round(
                     1 / (rank + 1)
+                    + _query_match_score(candidate, query)
                     + 0.01 * min(math.log1p(citations), 8)
                     + 0.02 / (age + 1),
                     4,
@@ -491,8 +565,8 @@ class DiscoveryService:
             candidate["role_labels"] = labels
         candidates.sort(
             key=lambda candidate: (
-                candidate["_provider_rank"],
                 -candidate["rank_score"],
+                candidate["_provider_rank"],
             )
         )
         for candidate in candidates:
@@ -503,6 +577,9 @@ class DiscoveryService:
         return {
             "candidates": candidates,
             "errors": errors,
+            "searched_sources": list(sources),
+            "failed_sources": failed_sources,
+            "search_latency_ms": round((time.perf_counter() - started_at) * 1000, 1),
             "next_offsets": next_offsets,
             "has_more": any(more_by_source.values())
             or any(

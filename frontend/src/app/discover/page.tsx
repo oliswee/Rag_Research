@@ -39,6 +39,7 @@ export default function DiscoverPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [savedKeys, setSavedKeys] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [searchedSources, setSearchedSources] = useState<Candidate["provider"][]>([]);
   const [error, setError] = useState("");
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,6 +66,7 @@ export default function DiscoverPage() {
     setSearching(true);
     setError("");
     setWarnings([]);
+    setSearchedSources([]);
     setSelected([]);
     setSelectedTags([]);
     setHasMore(false);
@@ -78,6 +80,7 @@ export default function DiscoverPage() {
       const result = await discoverPapers(params);
       setCandidates(result.candidates);
       setWarnings(result.errors);
+      setSearchedSources(result.searched_sources || []);
       setActiveSearch(params);
       setOffsets(result.next_offsets);
       setHasMore(result.has_more);
@@ -171,6 +174,7 @@ export default function DiscoverPage() {
     </div>}
     {candidates.length > 0 && <section className="mt-10">
       <h2 className="text-2xl font-semibold">Search results</h2>
+      {searchedSources.length > 0 && <p className="mt-2 text-sm text-muted-foreground">Sources chosen automatically: {searchedSources.map((source) => sourceNames[source]).join(", ")}</p>}
       <p className="mb-5 text-sm text-muted-foreground">Showing {visibleCandidates.length} of {candidates.length} loaded papers · add any paper to your library</p>
       {availableTags.length > 0 && <div className="mb-5 rounded-xl border bg-card p-4"><div className="mb-3 flex items-center justify-between gap-3"><strong className="text-sm">Filter by source topics</strong>{selectedTags.length > 0 && <button onClick={() => setSelectedTags([])} className="text-sm underline">Clear filters</button>}</div><div className="flex flex-wrap gap-2">{availableTags.slice(0, showAllTags ? undefined : 12).map(({ label, count }) => <button key={topicKey(label)} type="button" aria-label={`Filter by ${label}`} aria-pressed={selectedTags.includes(topicKey(label))} onClick={() => toggleTag(label)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(topicKey(label)) ? "border-emerald-700 bg-emerald-700 text-white" : "hover:border-emerald-700"}`}>{label} · {count}</button>)}{availableTags.length > 12 && <button onClick={() => setShowAllTags((value) => !value)} className="text-xs underline">{showAllTags ? "Show fewer topics" : `Show all ${availableTags.length} topics`}</button>}</div><p className="mt-3 text-xs text-muted-foreground">Selected topics filter the papers loaded so far. Select multiple topics to show papers matching any of them.</p></div>}
       <p className="mb-5 text-xs text-muted-foreground">Recency, citation, and potential foundation labels describe these search results; they do not rate research quality.</p>

@@ -18,6 +18,7 @@ vi.mock("@/lib/api", () => {
   return {
   discoverPapers: vi.fn().mockResolvedValue({
     errors: ["Semantic Scholar: 429 rate limit reached"],
+    searched_sources: ["semantic_scholar", "openalex"],
     themes: [{ label: "Information Retrieval", count: 2 }],
     candidates: [paper, { ...paper, provider_id: "W2", title: "Another retrieval paper" }],
     next_offsets: { semantic_scholar: 0, openalex: 2, pubmed: 0, arxiv: 0 },
@@ -37,6 +38,7 @@ it("explains a provider outage and sends one chosen paper to the library", async
   });
   fireEvent.click(screen.getByRole("button", { name: "Search papers" }));
   await screen.findByText("Retrieval paper");
+  expect(screen.getByText("Sources chosen automatically: Semantic Scholar, OpenAlex")).toBeInTheDocument();
   expect(screen.getAllByText("Abstract preview")).toHaveLength(2);
   expect(screen.getByText(/429 rate limit reached/)).toBeInTheDocument();
   expect(screen.getAllByText("Information Retrieval")).toHaveLength(2);

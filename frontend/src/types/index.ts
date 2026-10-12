@@ -221,6 +221,9 @@ export interface Candidate {
 export interface DiscoveryResult {
   candidates: Candidate[];
   errors: string[];
+  searched_sources?: Candidate["provider"][];
+  failed_sources?: Candidate["provider"][];
+  search_latency_ms?: number;
   themes: { label: string; count: number }[];
   next_offsets: { semantic_scholar: number; openalex: number; pubmed: number; arxiv: number };
   has_more: boolean;

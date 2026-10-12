@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     semantic_scholar_api_key: str = ""
+    ncbi_api_key: str = ""
+    ncbi_email: str = ""
 
     # LLM Settings
     anthropic_model: str = ModelID.SONNET_4

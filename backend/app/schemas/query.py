@@ -25,7 +25,7 @@ class QueryRequest(BaseModel):
     rewrite_query: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
     year_to: int | None = Field(None, ge=1800, le=2100)
-    provider: Literal["semantic_scholar", "openalex"] | None = None
+    provider: Literal["semantic_scholar", "openalex", "pubmed", "arxiv"] | None = None
 
 
 class FollowUpRequest(BaseModel):
@@ -46,7 +46,7 @@ class FollowUpRequest(BaseModel):
     rewrite_query: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
     year_to: int | None = Field(None, ge=1800, le=2100)
-    provider: Literal["semantic_scholar", "openalex"] | None = None
+    provider: Literal["semantic_scholar", "openalex", "pubmed", "arxiv"] | None = None
 
 
 class QueryResponse(BaseModel):

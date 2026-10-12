@@ -1,4 +1,4 @@
-"""Normalized paper discovery from Semantic Scholar and OpenAlex."""
+"""Normalized paper discovery from public academic providers."""
 
 import asyncio
 import math
@@ -11,9 +11,44 @@ from urllib.parse import quote
 import httpx
 
 from app.config import settings
+from app.services.arxiv import base_arxiv_id, parse_arxiv_feed
+from app.services.pubmed import parse_pubmed_xml, search_pubmed
 
 _CACHE: dict[tuple[str, tuple], tuple[float, dict]] = {}
 _CACHE_TTL = 600
+_ARXIV_LOCK = asyncio.Lock()
+_ARXIV_LAST_REQUEST = 0.0
+_QUESTION_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "for",
+    "how",
+    "in",
+    "is",
+    "of",
+    "on",
+    "or",
+    "should",
+    "the",
+    "to",
+    "was",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "would",
+}
 
 
 def normalize_doi(value: str | None) -> str | None:
@@ -192,6 +227,67 @@ class DiscoveryService:
             return data
         raise RuntimeError("Academic API unavailable")
 
+    async def _get_xml(self, url: str, params: dict) -> bytes:
+        for attempt in range(3):
+            response = await self.client.get(url, params=params)
+            if response.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                await asyncio.sleep(2**attempt)
+                continue
+            response.raise_for_status()
+            if len(response.content) > 3_000_000:
+                raise ValueError("Academic XML response is too large")
+            return response.content
+        raise RuntimeError("Academic API unavailable")
+
+    async def _search_pubmed(
+        self,
+        query: str,
+        limit: int,
+        offset: int,
+        year_from: int | None,
+        year_to: int | None,
+    ) -> dict:
+        return await search_pubmed(
+            self._get,
+            self._get_xml,
+            query,
+            limit,
+            offset,
+            year_from,
+            year_to,
+            False,  # Filter after fetching so skipped PubMed IDs advance the cursor.
+            settings.ncbi_api_key,
+            settings.ncbi_email,
+        )
+
+    async def _arxiv_feed(self, params: dict) -> dict:
+        global _ARXIV_LAST_REQUEST
+        # arXiv asks clients to leave three seconds between consecutive requests.
+        async with _ARXIV_LOCK:
+            delay = 3 - (time.monotonic() - _ARXIV_LAST_REQUEST)
+            if delay > 0:
+                await asyncio.sleep(delay)
+            _ARXIV_LAST_REQUEST = time.monotonic()
+            payload = await self._get_xml("https://export.arxiv.org/api/query", params)
+        return parse_arxiv_feed(payload)
+
+    async def _search_arxiv(self, query: str, limit: int, offset: int) -> dict:
+        terms = [
+            word.casefold()
+            for word in re.findall(r"[\w-]{3,}", query)
+            if word.casefold() not in _QUESTION_WORDS
+        ][:4]
+        search_query = " AND ".join(f"all:{term}" for term in terms) or f'all:"{query}"'
+        return await self._arxiv_feed(
+            {
+                "search_query": search_query,
+                "start": offset,
+                "max_results": limit,
+                "sortBy": "relevance",
+                "sortOrder": "descending",
+            }
+        )
+
     async def search(
         self,
         query: str,
@@ -199,11 +295,18 @@ class DiscoveryService:
         year_to: int | None = None,
         open_access: bool = False,
         limit: int = 20,
+        offsets: dict[str, int] | None = None,
     ) -> dict:
         limit = max(1, min(limit, 20))
+        offsets = offsets or {}
+        start = {
+            name: max(0, offsets.get(name, 0))
+            for name in ("semantic_scholar", "openalex", "pubmed", "arxiv")
+        }
         semantic_params = {
             "query": query,
             "limit": limit,
+            "offset": start["semantic_scholar"],
             "fields": (
                 "paperId,title,authors,year,abstract,url,"
                 "openAccessPdf,isOpenAccess,externalIds,citationCount,fieldsOfStudy"
@@ -221,6 +324,7 @@ class DiscoveryService:
         openalex_params = {
             "search": query,
             "per_page": limit,
+            "page": start["openalex"] // limit + 1,
             "select": (
                 "id,display_name,authorships,publication_year,"
                 "abstract_inverted_index,doi,ids,open_access,best_oa_location,"
@@ -234,20 +338,62 @@ class DiscoveryService:
                 "https://api.semanticscholar.org/graph/v1/paper/search", semantic_params
             ),
             self._get("https://api.openalex.org/works", openalex_params),
+            self._search_pubmed(query, limit, start["pubmed"], year_from, year_to),
+            self._search_arxiv(query, limit, start["arxiv"]),
             return_exceptions=True,
         )
         ranked, errors = [], []
-        for name, outcome, key, normalizer in (
-            ("Semantic Scholar", calls[0], "data", semantic_candidate),
-            ("OpenAlex", calls[1], "results", openalex_candidate),
+        next_offsets = start.copy()
+        more_by_source = {}
+        fetched_by_source = {}
+        for name, source, outcome, key, normalizer in (
+            (
+                "Semantic Scholar",
+                "semantic_scholar",
+                calls[0],
+                "data",
+                semantic_candidate,
+            ),
+            ("OpenAlex", "openalex", calls[1], "results", openalex_candidate),
+            ("PubMed", "pubmed", calls[2], "results", lambda record: record),
+            ("arXiv", "arxiv", calls[3], "results", lambda record: record),
         ):
             if isinstance(outcome, BaseException):
                 errors.append(_provider_error(name, outcome))
                 continue
-            for rank, raw in enumerate(outcome.get(key, [])):
-                candidate = normalizer(raw)
-                if open_access and not candidate["open_access"]:
+            records = outcome.get(key, [])
+            if source == "openalex":
+                records = records[start[source] % limit :]
+            fetched = outcome.get("fetched_count", len(records))
+            fetched_by_source[source] = fetched
+            total = (
+                outcome.get("total")
+                if source != "openalex"
+                else (outcome.get("meta") or {}).get("count")
+            )
+            more_by_source[source] = (
+                start[source] + fetched < total
+                if isinstance(total, int)
+                else fetched >= limit
+            )
+            for rank, raw in enumerate(records):
+                if raw is None:
+                    ranked.append((rank, source, None))
                     continue
+                candidate = normalizer(raw)
+                if source == "arxiv" and candidate.get("year"):
+                    if year_from and candidate["year"] < year_from:
+                        ranked.append((rank, source, None))
+                        continue
+                    if year_to and candidate["year"] > year_to:
+                        ranked.append((rank, source, None))
+                        continue
+                if open_access and not candidate["open_access"]:
+                    ranked.append((rank, source, None))
+                    continue
+                candidate["abstract_summary"] = candidate.get(
+                    "abstract_summary"
+                ) or _abstract_summary(candidate.get("abstract"))
                 candidate["relevance_reason"] = _explain_relevance(candidate, query)
                 candidate["_provider_rank"] = rank
                 citations = max(0, candidate.get("citation_count") or 0)
@@ -259,19 +405,39 @@ class DiscoveryService:
                     + 0.02 / (age + 1),
                     4,
                 )
-                ranked.append((rank, candidate))
-        # Interleave provider rankings before truncation so both sources remain visible.
-        ranked.sort(key=lambda pair: (pair[0], -pair[1]["rank_score"]))
-        by_identity = {}
-        for _, candidate in ranked:
-            identity = candidate["doi"] or (
-                candidate["provider"],
-                candidate["provider_id"],
+                ranked.append((rank, source, candidate))
+        # Interleave provider rankings so all available sources remain visible.
+        ranked.sort(
+            key=lambda entry: (
+                entry[0],
+                start[entry[1]],
+                -(entry[2] or {}).get("rank_score", 0),
             )
-            previous = by_identity.get(identity)
-            if previous is None or candidate["provider"] == "openalex":
-                by_identity[identity] = candidate
-        candidates = list(by_identity.values())[:limit]
+        )
+        candidates = []
+        by_identifier = {}
+        for _, source, candidate in ranked:
+            next_offsets[source] += 1
+            if candidate is None:
+                continue
+            identifiers = [(candidate["provider"], candidate["provider_id"])]
+            if candidate.get("doi"):
+                identifiers.append(("doi", candidate["doi"].lower()))
+            if candidate.get("arxiv_id"):
+                identifiers.append(("arxiv", candidate["arxiv_id"].lower()))
+            existing = next(
+                (by_identifier[key] for key in identifiers if key in by_identifier),
+                None,
+            )
+            if existing is None:
+                existing = len(candidates)
+                candidates.append(candidate)
+            elif candidate["provider"] == "openalex":
+                candidates[existing] = candidate
+            for key in identifiers:
+                by_identifier[key] = existing
+            if len(candidates) >= limit:
+                break
         openalex = {
             candidate["provider_id"]: candidate
             for candidate in candidates
@@ -337,6 +503,12 @@ class DiscoveryService:
         return {
             "candidates": candidates,
             "errors": errors,
+            "next_offsets": next_offsets,
+            "has_more": any(more_by_source.values())
+            or any(
+                next_offsets[source] < start[source] + fetched_by_source[source]
+                for source in fetched_by_source
+            ),
             "themes": [
                 {"label": label, "count": count}
                 for label, count in themes.most_common(8)
@@ -363,4 +535,38 @@ class DiscoveryService:
                 raise ValueError("Invalid OpenAlex ID")
             raw = await self._get("https://api.openalex.org/works/" + provider_id)
             return openalex_candidate(raw)
+        if provider == "pubmed":
+            if not re.fullmatch(r"\d{1,12}", provider_id):
+                raise ValueError("Invalid PubMed ID")
+            params = {
+                "db": "pubmed",
+                "id": provider_id,
+                "retmode": "xml",
+                "tool": "FolioTrace",
+            }
+            if settings.ncbi_api_key:
+                params["api_key"] = settings.ncbi_api_key
+            if settings.ncbi_email:
+                params["email"] = settings.ncbi_email
+            payload = await self._get_xml(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                params,
+            )
+            papers = parse_pubmed_xml(payload)
+            if not papers or papers[0]["provider_id"] != provider_id:
+                raise ValueError("PubMed record was not found")
+            return papers[0]
+        if provider == "arxiv":
+            paper_id = base_arxiv_id(provider_id)
+            if paper_id is None or paper_id != provider_id:
+                raise ValueError("Invalid arXiv ID")
+            result = await self._arxiv_feed({"id_list": paper_id})
+            papers = [
+                paper
+                for paper in result["results"]
+                if paper and paper["provider_id"] == paper_id
+            ]
+            if not papers:
+                raise ValueError("arXiv record was not found")
+            return papers[0]
         raise ValueError("Unsupported provider")

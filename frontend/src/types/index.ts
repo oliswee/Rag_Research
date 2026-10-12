@@ -208,10 +208,21 @@ export interface Candidate {
   pdf_url: string | null;
   open_access: boolean;
   doi: string | null;
+  citation_count: number | null;
+  tags: string[];
+  abstract_summary: string | null;
+  relevance_reason: string;
+  rank_score: number;
+  role_labels: string[];
+  cited_by_results: { provider_id: string; title: string }[];
   possible_duplicate_ids: string[];
 }
 
-export interface DiscoveryResult { candidates: Candidate[]; errors: string[] }
+export interface DiscoveryResult {
+  candidates: Candidate[];
+  errors: string[];
+  themes: { label: string; count: number }[];
+}
 export interface ImportJob {
   job_id: string;
   status: string;

@@ -37,6 +37,7 @@ it("explains a provider outage and sends one chosen paper to the library", async
   });
   fireEvent.click(screen.getByRole("button", { name: "Search papers" }));
   await screen.findByText("Retrieval paper");
+  expect(screen.getAllByText("Abstract preview")).toHaveLength(2);
   expect(screen.getByText(/429 rate limit reached/)).toBeInTheDocument();
   expect(screen.getAllByText("Information Retrieval")).toHaveLength(2);
   expect(screen.queryByText("Related themes:")).not.toBeInTheDocument();

@@ -18,6 +18,7 @@ from app.models import (
     PaperType,
 )
 from app.services.discovery import DiscoveryService
+from app.services.fulltext_locations import FullTextResolver
 from app.services.pdf_download import download_pdf
 from app.services.pdf_parser import PDFParserService
 from app.services.source_index import SourceVectorIndex, build_chunks
@@ -61,9 +62,10 @@ async def import_one(
             item.paper_id, item.status = duplicate, "duplicate"
             await db.commit()
             return
-        warning = None
+        warnings = []
         pages: list[tuple[str, int | None]] = []
         scope = "metadata"
+        content_url = candidate.get("source_url")
         if candidate.get("pdf_url") and candidate.get("open_access"):
             try:
                 payload = await download_pdf(candidate["pdf_url"])
@@ -72,23 +74,50 @@ async def import_one(
                 ).parse(payload)
                 pages = [(page.text, page.number) for page in parsed.pages]
                 scope = "full_text"
+                content_url = candidate["pdf_url"]
             except Exception as exc:
-                warning = (
-                    f"Open PDF unavailable: {type(exc).__name__}; "
-                    "used abstract when available"
-                )
+                warnings.append(f"Provider PDF unavailable: {type(exc).__name__}")
                 logger.warning(
                     "Open PDF import failed for %s: %s",
                     item.provider_id,
                     type(exc).__name__,
                 )
+        if not pages:
+            resolver = FullTextResolver()
+            try:
+                locations, lookup_warnings = await resolver.find(candidate)
+                warnings.extend(lookup_warnings)
+                for location in locations:
+                    try:
+                        if location.kind == "pdf":
+                            payload = await download_pdf(location.url)
+                            parsed = PDFParserService(
+                                max_pages=min(settings.max_pdf_pages, 200)
+                            ).parse(payload)
+                            pages = [(page.text, page.number) for page in parsed.pages]
+                        else:
+                            pages = [(await resolver.fetch_xml(location), None)]
+                        if not any(text.strip() for text, _ in pages):
+                            raise ValueError("Open copy contains no extractable text")
+                        scope = "full_text"
+                        content_url = location.source_url
+                        warnings.append(f"Full text retrieved via {location.source}")
+                        break
+                    except Exception as exc:
+                        pages = []
+                        warnings.append(
+                            f"{location.source} copy unavailable: {type(exc).__name__}"
+                        )
+            except Exception as exc:
+                warnings.append(f"Open-copy lookup unavailable: {type(exc).__name__}")
+            finally:
+                await resolver.close()
         if not pages and candidate.get("abstract"):
             pages = [(candidate["abstract"], None)]
             scope = "abstract"
         if not pages:
-            warning = (
-                (warning + "; ") if warning else ""
-            ) + "No open full text or abstract available; metadata only"
+            warnings.append("No open full text or abstract available; metadata only")
+        warning = "; ".join(warnings) or None
         paper = Paper(
             title=candidate["title"],
             authors=candidate["authors"],
@@ -112,9 +141,7 @@ async def import_one(
         for data in build_chunks(
             pages,
             scope,
-            candidate.get("pdf_url")
-            if scope == "full_text"
-            else candidate.get("source_url"),
+            content_url if scope == "full_text" else candidate.get("source_url"),
         ):
             chunk = PaperChunk(paper_id=paper.id, **data)
             db.add(chunk)

@@ -96,6 +96,51 @@ async def test_review_status_requires_reviewer_provenance():
     assert not report["quality_gate_met"]
 
 
+@pytest.mark.asyncio
+async def test_paper_scope_limits_answerable_and_no_answer_retrieval():
+    papers, chunks, labels = sample_corpus()
+    chunks[1]["text"] = (
+        "Aptamers are used here. Aptamers occur repeatedly. Climate is also discussed."
+    )
+    labels[0]["paper_ids"] = ["arxiv:paper-a"]
+    labels[1]["query"] = "Where are aptamers discussed?"
+    labels[1]["paper_ids"] = ["arxiv:paper-b"]
+    labels[1]["relevant_chunk_ids"] = ["chunk-b"]
+
+    report = await evaluate_bm25(papers, chunks, labels)
+
+    assert report["results"][0]["paper_ids"] == ["arxiv:paper-a"]
+    assert report["results"][0]["ranked_chunk_ids"] == ["chunk-a"]
+    assert report["results"][1]["ranked_chunk_ids"] == ["chunk-b"]
+
+
+@pytest.mark.asyncio
+async def test_paper_scoped_no_answer_excludes_other_papers():
+    papers, chunks, labels = sample_corpus()
+    labels[1]["query"] = "What climate projections affect power grid planning?"
+    labels[1]["paper_ids"] = ["arxiv:paper-a"]
+
+    report = await evaluate_bm25(papers, chunks, labels)
+
+    assert report["results"][1]["ranked_chunk_ids"] == []
+    assert report["results"][1]["paper_ids"] == ["arxiv:paper-a"]
+
+
+@pytest.mark.parametrize("paper_ids", [[], ["arxiv:missing"], "arxiv:paper-a"])
+def test_validation_rejects_invalid_paper_scope(paper_ids):
+    papers, chunks, labels = sample_corpus()
+    labels[0]["paper_ids"] = paper_ids
+    with pytest.raises(ValueError, match="paper_ids"):
+        validate_corpus(papers, chunks, labels)
+
+
+def test_validation_rejects_gold_chunk_outside_paper_scope():
+    papers, chunks, labels = sample_corpus()
+    labels[0]["paper_ids"] = ["arxiv:paper-b"]
+    with pytest.raises(ValueError, match="outside paper_ids"):
+        validate_corpus(papers, chunks, labels)
+
+
 def test_validation_rejects_unknown_gold_ids_and_duplicate_chunks():
     papers, chunks, labels = sample_corpus()
     labels[0]["relevant_chunk_ids"] = ["missing"]

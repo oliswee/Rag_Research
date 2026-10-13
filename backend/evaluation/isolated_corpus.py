@@ -7,7 +7,8 @@ Usage from backend/:
 
 The paper manifest is a JSON array. Each paper needs an ID (or provider + id),
 title, and source URL. Each chunk JSONL row needs an ID, paper ID, index, text,
-and checksum. Each label JSONL row needs a query and relevant_chunk_ids.
+and checksum. Each label JSONL row needs a query and relevant_chunk_ids. An
+optional paper_ids list limits retrieval to those papers for that question.
 """
 
 import argparse
@@ -54,6 +55,7 @@ def validate_corpus(papers: list[dict], chunks: list[dict], labels: list[dict]) 
         raise ValueError("Duplicate chunk ID")
     known_papers = set(paper_ids)
     known_chunks = set(chunk_ids)
+    chunk_papers = {record["id"]: record.get("paper_id") for record in chunks}
     positions = set()
     for chunk in chunks:
         if chunk.get("paper_id") not in known_papers:
@@ -75,6 +77,20 @@ def validate_corpus(papers: list[dict], chunks: list[dict], labels: list[dict]) 
         unknown = set(relevant) - known_chunks
         if unknown:
             raise ValueError(f"Unknown relevant chunk ID: {sorted(unknown)[0]}")
+        if "paper_ids" in case:
+            scope = case["paper_ids"]
+            if (
+                not isinstance(scope, list)
+                or not scope
+                or any(not isinstance(item, str) or not item for item in scope)
+                or len(scope) != len(set(scope))
+                or not set(scope) <= known_papers
+            ):
+                raise ValueError(
+                    "paper_ids must be a non-empty list of known paper IDs"
+                )
+            if any(chunk_papers[chunk_id] not in scope for chunk_id in relevant):
+                raise ValueError("Relevant chunk is outside paper_ids")
 
 
 def mean(results: list[dict], metric: str) -> float | None:
@@ -137,7 +153,9 @@ async def evaluate_bm25(
             results = []
             for case in labels:
                 start = time.perf_counter()
-                evidence, actual_mode = await retrieve(db, case["query"], mode="bm25")
+                evidence, actual_mode = await retrieve(
+                    db, case["query"], paper_ids=case.get("paper_ids"), mode="bm25"
+                )
                 latency_ms = (time.perf_counter() - start) * 1000
                 if actual_mode != "bm25":
                     raise RuntimeError(f"Expected BM25, got {actual_mode}")
@@ -146,6 +164,7 @@ async def evaluate_bm25(
                 results.append(
                     {
                         "query": case["query"],
+                        "paper_ids": case.get("paper_ids"),
                         "group": case.get("group", "other"),
                         "split": case.get("split", "unspecified"),
                         "actual_mode": actual_mode,

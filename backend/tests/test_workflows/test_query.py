@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.models import Paper, PaperType, Pattern, PatternStatus
 from app.schemas.session import ConversationSession
 from app.workflows.query import QueryInput, QueryResult, QueryWorkflow
 
@@ -355,6 +356,56 @@ class TestQueryWorkflow:
         result = await workflow.run(QueryInput(query="test query"))
 
         assert result.confidence == "high"
+
+    @pytest.mark.asyncio
+    async def test_rejects_fabricated_legacy_pattern_citation(
+        self,
+        workflow: QueryWorkflow,
+        mock_llm_client: MagicMock,
+        mock_pattern: MagicMock,
+        mock_paper: MagicMock,
+    ) -> None:
+        workflow._get_patterns_with_papers = AsyncMock(
+            return_value=[(mock_pattern, mock_paper)]
+        )
+        mock_llm_client.complete_json.return_value = {
+            "answer": "Invented finding [P:invented]",
+            "sources": [{"pattern_id": "invented", "paper_title": "Other"}],
+            "confidence": "high",
+        }
+
+        result = await workflow.run(QueryInput(query="test query"))
+
+        assert "Invented finding" not in result.answer
+        assert result.sources == []
+        assert result.confidence == "low"
+
+
+@pytest.mark.asyncio
+async def test_legacy_lookup_excludes_rejected_pattern(async_db_session) -> None:
+    paper = Paper(title="Test paper", type=PaperType.research_paper)
+    async_db_session.add(paper)
+    await async_db_session.flush()
+    approved = Pattern(
+        paper_id=paper.id,
+        name="Approved finding",
+        claim="Supported",
+        status=PatternStatus.approved,
+    )
+    rejected = Pattern(
+        paper_id=paper.id,
+        name="Rejected finding",
+        claim="Unsupported",
+        status=PatternStatus.rejected,
+    )
+    async_db_session.add_all([approved, rejected])
+    await async_db_session.flush()
+
+    found = await QueryWorkflow(db=async_db_session)._get_patterns_with_papers(
+        [rejected.id, approved.id]
+    )
+
+    assert [pattern.id for pattern, _ in found] == [approved.id]
 
 
 class TestQueryInput:

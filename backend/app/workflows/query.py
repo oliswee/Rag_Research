@@ -1,13 +1,14 @@
 """Query workflow for searching and synthesizing answers."""
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Paper, Pattern
+from app.models import Paper, Pattern, PatternStatus
 from app.schemas.session import ConversationTurn, SourceReference
 from app.services import EmbeddingService, LLMClient, SessionManager, VectorStoreService
 from app.services.prompts.synthesis import (
@@ -192,6 +193,25 @@ class QueryWorkflow:
                 error=f"Answer synthesis failed: {e}",
             )
 
+        allowed_ids = {pattern.id for pattern, _ in patterns_with_papers}
+        cited_ids = set(re.findall(r"\[P:([^\]]+)\]", synthesis_result.answer))
+        cited_ids = {
+            item.removeprefix("P:").strip()
+            for group in cited_ids
+            for item in group.split(",")
+        }
+        if (
+            not cited_ids
+            or not cited_ids <= allowed_ids
+            or any(
+                source.pattern_id not in allowed_ids
+                for source in synthesis_result.sources
+            )
+        ):
+            synthesis_result.answer = "Insufficient verified evidence in the library."
+            synthesis_result.sources = []
+            synthesis_result.confidence = "low"
+
         # Step 7: Update session with turn
         now = datetime.now(UTC)
 
@@ -244,7 +264,9 @@ class QueryWorkflow:
 
         # Fetch patterns
         result = await self.db.execute(
-            select(Pattern).where(Pattern.id.in_(pattern_ids))
+            select(Pattern).where(
+                Pattern.id.in_(pattern_ids), Pattern.status == PatternStatus.approved
+            )
         )
         patterns = result.scalars().all()
 

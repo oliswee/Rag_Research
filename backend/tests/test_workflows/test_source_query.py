@@ -2,6 +2,8 @@ import pytest
 
 from app.workflows.source_query import answer_from_evidence, compare_evidence
 
+EVIDENCE_QUOTE = "Active retrieval reduced latency by 20 percent."
+
 
 @pytest.mark.asyncio
 async def test_rejects_fabricated_source_id(monkeypatch):
@@ -10,13 +12,22 @@ async def test_rejects_fabricated_source_id(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_api_key", "test")
 
     class FakeLLM:
+        calls = 0
+
         async def complete_json(self, **kwargs):
-            return {
-                "claims": [
-                    {"text": "Unsupported", "source_ids": ["invented"]},
-                    {"text": "Supported", "source_ids": ["real"]},
-                ]
-            }
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "claims": [
+                        {"text": "Unsupported", "source_ids": ["invented"]},
+                        {
+                            "text": "Active retrieval reduced latency.",
+                            "source_ids": ["real"],
+                            "supporting_quotes": {"real": EVIDENCE_QUOTE},
+                        },
+                    ]
+                }
+            return {"supported_indices": [0]}
 
     monkeypatch.setattr("app.services.llm_client.LLMClient", FakeLLM)
     answer, used = await answer_from_evidence(
@@ -27,7 +38,7 @@ async def test_rejects_fabricated_source_id(monkeypatch):
                 "title": "Paper",
                 "content_scope": "abstract",
                 "page_start": None,
-                "excerpt": "Supported",
+                "excerpt": EVIDENCE_QUOTE,
                 "paper_id": "p",
                 "source_url": None,
                 "page_end": None,
@@ -35,8 +46,94 @@ async def test_rejects_fabricated_source_id(monkeypatch):
         ],
     )
     assert "Unsupported" not in answer
-    assert "Supported [C:real]" in answer
+    assert "Active retrieval reduced latency. [C:real]" in answer
     assert [source["chunk_id"] for source in used] == ["real"]
+
+
+@pytest.mark.asyncio
+async def test_rejects_unsupported_claim_with_real_citation(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "test")
+
+    class FakeLLM:
+        calls = 0
+
+        async def complete_json(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "claims": [
+                        {
+                            "text": "The paper proves all answers are correct.",
+                            "source_ids": ["real"],
+                            "supporting_quotes": {"real": EVIDENCE_QUOTE},
+                        }
+                    ]
+                }
+            return {"supported_indices": []}
+
+    monkeypatch.setattr("app.services.llm_client.LLMClient", FakeLLM)
+    answer, used = await answer_from_evidence(
+        "Does retrieval improve accuracy?",
+        [
+            {
+                "chunk_id": "real",
+                "title": "Paper",
+                "content_scope": "abstract",
+                "page_start": None,
+                "excerpt": EVIDENCE_QUOTE,
+                "paper_id": "p",
+                "source_url": None,
+                "page_end": None,
+            }
+        ],
+    )
+    assert "proves all answers" not in answer
+    assert used == []
+
+
+@pytest.mark.asyncio
+async def test_support_check_failure_does_not_publish_unchecked_claim(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "test")
+
+    class FakeLLM:
+        calls = 0
+
+        async def complete_json(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "claims": [
+                        {
+                            "text": "Active retrieval reduced latency.",
+                            "source_ids": ["real"],
+                            "supporting_quotes": {"real": EVIDENCE_QUOTE},
+                        }
+                    ]
+                }
+            raise TimeoutError("verification unavailable")
+
+    monkeypatch.setattr("app.services.llm_client.LLMClient", FakeLLM)
+    answer, used = await answer_from_evidence(
+        "What happened to latency?",
+        [
+            {
+                "chunk_id": "real",
+                "title": "Paper",
+                "content_scope": "abstract",
+                "page_start": None,
+                "excerpt": EVIDENCE_QUOTE,
+                "paper_id": "p",
+                "source_url": None,
+                "page_end": None,
+            }
+        ],
+    )
+    assert answer == "Unable to verify answer support from the retrieved excerpts."
+    assert used == []
 
 
 @pytest.mark.asyncio

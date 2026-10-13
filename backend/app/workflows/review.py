@@ -193,7 +193,19 @@ class ReviewWorkflow:
         logger.info(f"Approved pattern {pattern.id}")
 
     async def _reject_pattern(self, pattern: Pattern, result: ReviewResult) -> None:
-        """Reject a pattern: update status only."""
+        """Reject a pattern and best-effort remove any previously indexed vector."""
+        if pattern.status == PatternStatus.approved:
+            try:
+                self.vector_store.delete_pattern(pattern.id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to remove rejected pattern vector %s: %s",
+                    pattern.id,
+                    type(exc).__name__,
+                )
+                result.errors.append(
+                    f"Pattern {pattern.id} vector removal pending: {type(exc).__name__}"
+                )
         pattern.status = PatternStatus.rejected
         result.rejected_count += 1
         logger.info(f"Rejected pattern {pattern.id}")

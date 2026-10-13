@@ -61,7 +61,7 @@ Open [http://localhost:3000/discover](http://localhost:3000/discover). Compose r
 
 After adding an OpenAI key to a library created without one, run `uv run python -m evaluation.reindex` from `backend/` to rebuild source vectors. Keywords remain searchable while indexing is unavailable.
 
-Retrieval quality is not yet certified: the spec requires 40 independently labelled queries before hybrid search becomes the default. Run `uv run python -m evaluation.evaluate labels.jsonl --output report.json` from `backend/` after creating that dataset. Add `--judge` and install DeepEval to include Faithfulness scoring. The script also checks citation IDs and reports Recall@10, nDCG@10, and latency for each retrieval mode.
+Retrieval quality is not yet certified: the spec requires 40 independently labelled queries before hybrid search becomes the default. Run `uv run python -m evaluation.evaluate labels.jsonl --output report.json` from `backend/` after creating that dataset. Each JSONL row needs a `query` and `relevant_chunk_ids`; an empty relevant list marks an unanswerable case. Add `--judge` and install DeepEval to include Faithfulness scoring. The script reports Recall@10, nDCG@10, and latency for each retrieval mode. It rejects an uncited answer when relevant evidence is labelled, rejects unknown citation IDs, and accepts an uncited unanswerable case only when the answer explicitly abstains.
 
 ## Discovery evaluation
 

@@ -32,10 +32,20 @@ def ndcg_at_k(ranked: list[str], relevant: set[str], k: int = 10) -> float:
     return gain / ideal if ideal else 1.0
 
 
-def citations_valid(answer: str, evidence: list[dict]) -> bool:
+def citations_valid(
+    answer: str, evidence: list[dict], *, answerable: bool = True
+) -> bool:
     import re
 
     ids = set(re.findall(r"\[C:([^\]]+)\]", answer))
+    if not ids:
+        abstained = answer in {
+            "Insufficient evidence in the local library. "
+            "Discover or import relevant papers first.",
+            "Insufficient verified evidence in the retrieved excerpts.",
+            "Unable to verify answer support from the retrieved excerpts.",
+        }
+        return not answerable and abstained
     return ids <= {source["chunk_id"] for source in evidence}
 
 
@@ -56,7 +66,9 @@ async def run_case(case: dict, judge: bool = False) -> dict:
         }
         if mode == "hybrid":
             answer, cited = await answer_from_evidence(case["query"], evidence)
-            output["citation_ids_valid"] = citations_valid(answer, cited)
+            output["citation_ids_valid"] = citations_valid(
+                answer, cited, answerable=bool(relevant)
+            )
             if judge and cited:
                 from deepeval.metrics import FaithfulnessMetric
                 from deepeval.test_case import LLMTestCase

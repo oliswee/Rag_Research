@@ -4,6 +4,7 @@ These fixtures provide mocked external services (LLM, embeddings, Qdrant)
 while allowing the full workflow logic to execute.
 """
 
+import re
 from collections.abc import Generator
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
@@ -212,23 +213,23 @@ def mock_llm_client() -> MagicMock:
     client = MagicMock()
 
     async def complete_json(system_prompt, user_prompt):
-        # Parse pattern IDs from context if available
-        # Return a deterministic response
+        pattern_ids = re.findall(r"(?m)^\[P:([^\]]+)\]", user_prompt)
+        assert len(pattern_ids) >= 2
         return {
             "answer": (
                 "Based on the research patterns in your library, agents benefit "
-                "significantly from memory consolidation [P:pattern-1]. "
+                f"significantly from memory consolidation [P:{pattern_ids[0]}]. "
                 "Additionally, efficient context window management helps "
-                "reduce hallucinations [P:pattern-2]."
+                f"reduce hallucinations [P:{pattern_ids[1]}]."
             ),
             "sources": [
                 {
-                    "pattern_id": "pattern-1",
+                    "pattern_id": pattern_ids[0],
                     "paper_title": "Test Paper: Agent Memory Patterns",
                     "relevance": "supporting",
                 },
                 {
-                    "pattern_id": "pattern-2",
+                    "pattern_id": pattern_ids[1],
                     "paper_title": "Test Paper: Agent Memory Patterns",
                     "relevance": "supporting",
                 },

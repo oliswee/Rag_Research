@@ -35,6 +35,7 @@ class TestReviewWorkflow:
         """Create mock vector store service."""
         store = AsyncMock()
         store.upsert = AsyncMock()
+        store.delete_pattern = MagicMock()
         return store
 
     @pytest.fixture
@@ -165,6 +166,28 @@ class TestReviewWorkflow:
 
         assert result.rejected_count == 1
         assert sample_patterns[0].status == PatternStatus.rejected
+
+    @pytest.mark.asyncio
+    async def test_rejecting_previously_approved_pattern_removes_vector(
+        self,
+        workflow: ReviewWorkflow,
+        mock_vector_store: AsyncMock,
+        sample_paper: MagicMock,
+        sample_patterns: list[MagicMock],
+    ) -> None:
+        sample_patterns[0].status = PatternStatus.approved
+        workflow._get_paper = AsyncMock(return_value=sample_paper)
+        workflow._get_pattern = AsyncMock(return_value=sample_patterns[0])
+        workflow._update_paper_status_if_complete = AsyncMock(return_value=False)
+
+        result = await workflow.run(
+            sample_paper.id,
+            [PatternDecision(temp_id="pattern-1", approved=False)],
+        )
+
+        assert result.rejected_count == 1
+        assert sample_patterns[0].status == PatternStatus.rejected
+        mock_vector_store.delete_pattern.assert_called_once_with("pattern-1")
 
     @pytest.mark.asyncio
     async def test_reject_does_not_embed(

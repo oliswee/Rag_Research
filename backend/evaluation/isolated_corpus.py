@@ -170,7 +170,7 @@ async def evaluate_bm25(
                 bool(case["relevant_chunk_ids"]) for case in labels
             ),
             "no_answer_count": sum(not case["relevant_chunk_ids"] for case in labels),
-            "labels_independently_reviewed": all(
+            "labels_declared_reviewed": all(
                 case.get("label_status") == "independently_reviewed"
                 and isinstance(case.get("reviewer"), str)
                 and bool(case["reviewer"].strip())

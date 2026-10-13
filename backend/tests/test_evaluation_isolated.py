@@ -77,7 +77,7 @@ async def test_bm25_uses_isolated_app_retrieval_and_separates_no_answer():
     assert report["groups"]["no_answer"]["recall_at_10"] is None
     assert report["results"][0]["ranked_chunk_ids"][0] == "chunk-a"
     assert all(case["actual_mode"] == "bm25" for case in report["results"])
-    assert report["labels_independently_reviewed"] is False
+    assert report["labels_declared_reviewed"] is False
     assert report["quality_gate_met"] is False
 
 
@@ -86,15 +86,13 @@ async def test_review_status_requires_reviewer_provenance():
     papers, chunks, labels = sample_corpus()
     for case in labels:
         case["label_status"] = "independently_reviewed"
-    assert not (await evaluate_bm25(papers, chunks, labels))[
-        "labels_independently_reviewed"
-    ]
+    assert not (await evaluate_bm25(papers, chunks, labels))["labels_declared_reviewed"]
 
     for case in labels:
         case["reviewer"] = "external-reviewer"
         case["review_date"] = "2026-10-13"
     report = await evaluate_bm25(papers, chunks, labels)
-    assert report["labels_independently_reviewed"]
+    assert report["labels_declared_reviewed"]
     assert not report["quality_gate_met"]
 
 

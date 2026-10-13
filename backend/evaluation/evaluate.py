@@ -39,13 +39,12 @@ def citations_valid(
 
     ids = set(re.findall(r"\[C:([^\]]+)\]", answer))
     if not ids:
-        abstained = answer.startswith(
-            (
-                "Insufficient evidence in the local library.",
-                "Insufficient verified evidence in the retrieved excerpts.",
-                "Unable to verify answer support from the retrieved excerpts.",
-            )
-        )
+        abstained = answer in {
+            "Insufficient evidence in the local library. "
+            "Discover or import relevant papers first.",
+            "Insufficient verified evidence in the retrieved excerpts.",
+            "Unable to verify answer support from the retrieved excerpts.",
+        }
         return not answerable and abstained
     return ids <= {source["chunk_id"] for source in evidence}
 

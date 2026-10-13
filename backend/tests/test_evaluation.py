@@ -19,10 +19,16 @@ def test_citation_check_rejects_uncited_answer_but_allows_explicit_abstention():
         "An invented source [C:made-up]", evidence, answerable=True
     )
     assert citations_valid(
-        "Insufficient evidence in the local library. Discover papers first.",
+        "Insufficient evidence in the local library. "
+        "Discover or import relevant papers first.",
         [],
         answerable=False,
     )
     assert not citations_valid(
         "An uncited claim despite no matching papers.", [], answerable=False
+    )
+    assert not citations_valid(
+        "Insufficient evidence in the local library. But this treatment works.",
+        [],
+        answerable=False,
     )

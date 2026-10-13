@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Literal
 
 from app.config import settings
@@ -35,14 +36,16 @@ async def rewrite_for_retrieval(
             system_prompt=(
                 "Rewrite the current question as one standalone search query for "
                 "academic source excerpts. Resolve references using the conversation "
-                "history. Preserve names, exact terms and constraints. Do not answer "
-                'or add facts. Return only JSON: {"query":"..."}.'
+                "history. Preserve names, exact terms and constraints. Add up to "
+                "three closely related search keywords or short synonyms; do not "
+                "add facts or new named entities. Do not answer the question. Return "
+                'only JSON: {"query":"...","keywords":["..."]}.'
             ),
             user_prompt=json.dumps(
                 {"history": recent_turns, "question": question[:1500]},
                 ensure_ascii=False,
             ),
-            max_tokens=180,
+            max_tokens=240,
         )
     except Exception as exc:
         logger.warning("Query rewrite unavailable: %s", type(exc).__name__)
@@ -54,4 +57,23 @@ async def rewrite_for_retrieval(
     rewritten = " ".join(rewritten.split())
     if not rewritten or len(rewritten) > 500:
         return fallback, "failed"
+    keywords = result.get("keywords")
+    if isinstance(keywords, list):
+        accepted = 0
+        for value in keywords:
+            if not isinstance(value, str):
+                continue
+            term = " ".join(value.split())
+            if (
+                not term
+                or len(term) > 60
+                or not re.fullmatch(r"[\w-]+(?:\s+[\w-]+){0,2}", term)
+                or term.casefold() in rewritten.casefold()
+                or len(rewritten) + len(term) + 1 > 500
+            ):
+                continue
+            rewritten += " " + term
+            accepted += 1
+            if accepted == 3:
+                break
     return rewritten, "applied"

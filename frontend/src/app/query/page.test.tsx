@@ -22,18 +22,29 @@ beforeEach(() => {
   vi.mocked(submitQuery).mockClear();
 });
 
-it("sends the optional rewrite setting with a question", async () => {
+it("rewrites questions automatically without showing a rewrite control", async () => {
   render(<QueryPage />);
-  fireEvent.click(screen.getByText("Search scope and retrieval"));
-  fireEvent.click(screen.getByRole("checkbox", { name: /rewrite query/i }));
+  expect(screen.queryByText("Rewrite query with AI")).not.toBeInTheDocument();
   const input = screen.getByPlaceholderText("Ask a question about your research...");
+  fireEvent.change(input, { target: { value: "How does active retrieval work?" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  await waitFor(() =>
+    expect(submitQuery).toHaveBeenCalledWith(
+      "How does active retrieval work?",
+      undefined,
+      expect.objectContaining({ rewrite_query: true }),
+    ),
+  );
+
+  await waitFor(() => expect(screen.getByText("Source excerpts are shown below.")).toBeInTheDocument());
   fireEvent.change(input, { target: { value: "What about its latency?" } });
   fireEvent.keyDown(input, { key: "Enter" });
 
   await waitFor(() =>
     expect(submitQuery).toHaveBeenCalledWith(
       "What about its latency?",
-      undefined,
+      "session-1",
       expect.objectContaining({ rewrite_query: true }),
     ),
   );

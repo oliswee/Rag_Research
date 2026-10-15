@@ -175,16 +175,24 @@ async def evaluate_bm25(
                 if trace is not None:
                     trace.record_query(case["query"], "disabled")
                 start = time.perf_counter()
-                evidence, actual_mode = await retrieve(
-                    db,
-                    case["query"],
-                    paper_ids=case.get("paper_ids"),
-                    mode="bm25",
-                    trace=trace,
-                )
-                if trace is not None:
-                    trace.finish("retrieval_only", [])
-                    trace.append(trace_output)
+                try:
+                    evidence, actual_mode = await retrieve(
+                        db,
+                        case["query"],
+                        paper_ids=case.get("paper_ids"),
+                        mode="bm25",
+                        trace=trace,
+                    )
+                    if trace is not None:
+                        trace.finish("retrieval_only", [])
+                except Exception as exc:
+                    if trace is not None:
+                        trace.record_failure("retrieve", exc)
+                        trace.finish("error", [])
+                    raise
+                finally:
+                    if trace is not None:
+                        trace.append(trace_output)
                 latency_ms = (time.perf_counter() - start) * 1000
                 if actual_mode != "bm25":
                     raise RuntimeError(f"Expected BM25, got {actual_mode}")

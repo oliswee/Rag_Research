@@ -2,6 +2,10 @@
 name: qasper_v0_3_dev_40
 corpus_version: qasper-v0.3-dev-40
 source: https://huggingface.co/datasets/allenai/qasper
+source_archive: https://qasper-dataset.s3.us-west-2.amazonaws.com/qasper-train-dev-v0.3.tgz
+source_archive_sha256: a28fdf966db827bcee3d873107d6b6669864fb7ca8fbf73a192f5e39191bdb5a
+source_dev_sha256: 2ae7ee62a65b1c4225791c70de80c2aad4e8998cf1fd4f09a53103db4f21af93
+preparation_script: evaluation.prepare_qasper
 source_split: validation
 source_format: S2ORC extracted text
 paper_count: 40

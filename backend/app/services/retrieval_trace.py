@@ -1,5 +1,6 @@
 """Small privacy-conscious local trace for retrieval and evidence routing."""
 
+import hashlib
 import json
 import math
 import re
@@ -34,6 +35,32 @@ def _safe_query(query: str) -> str:
     return query[:500]
 
 
+def _safe_scope(scope: dict) -> dict:
+    """Keep routing controls while avoiding raw request-supplied identifiers."""
+    paper_ids = scope.get("paper_ids")
+    mode = scope.get("requested_mode")
+    return {
+        "paper_id_count": len(paper_ids) if isinstance(paper_ids, list) else 0,
+        "paper_id_hashes": [
+            hashlib.sha256(item.encode("utf-8")).hexdigest()
+            for item in paper_ids
+            if isinstance(item, str)
+        ]
+        if isinstance(paper_ids, list)
+        else [],
+        "provider_hash": hashlib.sha256(scope["provider"].encode("utf-8")).hexdigest()
+        if isinstance(scope.get("provider"), str)
+        else None,
+        "year_from": scope.get("year_from")
+        if type(scope.get("year_from")) is int
+        else None,
+        "year_to": scope.get("year_to") if type(scope.get("year_to")) is int else None,
+        "requested_mode": mode
+        if mode in {"bm25", "dense", "hybrid", "legacy_pattern"}
+        else None,
+    }
+
+
 class RetrievalTrace:
     """Collect IDs and timings; never accept source excerpts or error messages."""
 
@@ -58,7 +85,7 @@ class RetrievalTrace:
             "original_query": _safe_query(original_query),
             "retrieval_query": None,
             "rewrite_status": None,
-            "scope": scope,
+            "scope": _safe_scope(scope),
             "retrieval_mode": None,
             "rankings": {},
             "stage_ms": {},

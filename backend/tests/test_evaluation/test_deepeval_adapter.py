@@ -76,6 +76,27 @@ def test_unanswerable_case_does_not_invent_reference_or_score():
     assert names == ["faithfulness", "answer_relevancy", "contextual_relevancy"]
 
 
+def test_empty_prompt_evidence_skips_context_metrics():
+    names = []
+
+    def measure(name, _case, _model):
+        names.append(name)
+        return {"score": 0.5, "cost": None}
+
+    result = evaluate_trace(
+        {**TRACE, "prompt_evidence_ids": [], "support_status": "abstain"},
+        actual_output="Insufficient evidence.",
+        evidence_by_id={},
+        expected_output=None,
+        judge=JudgeConfig(provider="anthropic", model="claude-test", api_key="fake"),
+        measure=measure,
+    )
+    assert names == ["answer_relevancy"]
+    assert result["metrics"]["faithfulness"]["status"] == "not_applicable"
+    assert result["metrics"]["contextual_relevancy"]["score"] is None
+    assert result["status"] == "partially_evaluated"
+
+
 def test_missing_key_skips_without_importing_or_calling_judge():
     result = evaluate_trace(
         TRACE,

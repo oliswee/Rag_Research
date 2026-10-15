@@ -42,6 +42,31 @@ async def submit_query(
     Creates a new session if session_id is not provided.
     Returns synthesized answer with pattern citations.
     """
+    trace = RetrievalTrace(
+        request.query,
+        {
+            "paper_ids": request.paper_ids,
+            "year_from": request.year_from,
+            "year_to": request.year_to,
+            "provider": request.provider,
+            "requested_mode": request.retrieval_mode,
+        },
+        corpus_version="unversioned",
+    )
+    try:
+        return await _submit_query_impl(request, db, trace)
+    except Exception as exc:
+        if not trace.record["failures"]:
+            trace.record_failure("query", exc)
+        trace.finish("error", trace.record["prompt_evidence_ids"])
+        raise
+    finally:
+        _write_trace(trace)
+
+
+async def _submit_query_impl(
+    request: QueryRequest, db: AsyncSession, trace: RetrievalTrace
+) -> dict:
     has_online_imports = (
         await db.execute(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
@@ -53,17 +78,6 @@ async def submit_query(
         or (request.rewrite_query and await has_source_chunks(db))
         or (has_online_imports and await has_source_chunks(db))
     ):
-        trace = RetrievalTrace(
-            request.query,
-            {
-                "paper_ids": request.paper_ids,
-                "year_from": request.year_from,
-                "year_to": request.year_to,
-                "provider": request.provider,
-                "requested_mode": request.retrieval_mode,
-            },
-            corpus_version="unversioned",
-        )
         session = (
             session_manager.get_session(request.session_id)
             if request.session_id
@@ -124,8 +138,6 @@ async def submit_query(
             trace.record_failure("query", exc)
             trace.finish("error", prompt_ids)
             raise
-        finally:
-            _write_trace(trace)
         now = datetime.now(UTC)
         session_manager.update_session(
             session.session_id,
@@ -156,11 +168,6 @@ async def submit_query(
             retrieval_query=retrieval_query,
             rewrite_status=rewrite_status,
         ).model_dump()
-    trace = RetrievalTrace(
-        request.query,
-        {"requested_mode": "legacy_pattern", "paper_ids": request.paper_ids},
-        corpus_version="unversioned",
-    )
     trace.record_query(request.query, "legacy")
     workflow_start = time.perf_counter()
     try:
@@ -180,9 +187,6 @@ async def submit_query(
         trace.record_failure("legacy_workflow", exc)
         trace.finish("error", [])
         raise
-    finally:
-        _write_trace(trace)
-
     if not result.success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -212,6 +216,31 @@ async def follow_up_query(
     Requires a valid session_id from a previous query.
     Uses conversation history for context.
     """
+    trace = RetrievalTrace(
+        request.query,
+        {
+            "paper_ids": request.paper_ids,
+            "year_from": request.year_from,
+            "year_to": request.year_to,
+            "provider": request.provider,
+            "requested_mode": request.retrieval_mode,
+        },
+        corpus_version="unversioned",
+    )
+    try:
+        return await _follow_up_query_impl(request, db, trace)
+    except Exception as exc:
+        if not trace.record["failures"]:
+            trace.record_failure("followup", exc)
+        trace.finish("error", trace.record["prompt_evidence_ids"])
+        raise
+    finally:
+        _write_trace(trace)
+
+
+async def _follow_up_query_impl(
+    request: FollowUpRequest, db: AsyncSession, trace: RetrievalTrace
+) -> dict:
     has_online_imports = (
         await db.execute(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
@@ -222,7 +251,7 @@ async def follow_up_query(
         or (request.rewrite_query and await has_source_chunks(db))
         or (has_online_imports and await has_source_chunks(db))
     ):
-        return await submit_query(
+        return await _submit_query_impl(
             QueryRequest(
                 query=request.query,
                 session_id=request.session_id,
@@ -234,12 +263,8 @@ async def follow_up_query(
                 provider=request.provider,
             ),
             db,
+            trace,
         )
-    trace = RetrievalTrace(
-        request.query,
-        {"requested_mode": "legacy_pattern", "paper_ids": request.paper_ids},
-        corpus_version="unversioned",
-    )
     trace.record_query(request.query, "legacy")
     workflow_start = time.perf_counter()
     try:
@@ -259,9 +284,6 @@ async def follow_up_query(
         trace.record_failure("legacy_workflow", exc)
         trace.finish("error", [])
         raise
-    finally:
-        _write_trace(trace)
-
     if not result.success:
         # Check if it's a session error
         if result.error and "session" in result.error.lower():

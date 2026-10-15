@@ -51,3 +51,24 @@ def test_trace_redacts_configured_and_bearer_credentials(monkeypatch):
     saved = str(trace.as_dict())
     assert "bearer-private-token" not in saved
     assert "fixture-private-token" not in saved
+
+
+def test_trace_scope_never_persists_untrusted_paper_ids_or_provider(tmp_path):
+    trace = RetrievalTrace(
+        "public question",
+        {
+            "paper_ids": ["paper-1", "Authorization: Bearer private-token"],
+            "provider": "private-provider-text",
+            "requested_mode": "bm25",
+            "year_from": 2020,
+        },
+        corpus_version="fixture",
+    )
+    output = tmp_path / "trace.jsonl"
+    trace.append(output)
+    saved = output.read_text(encoding="utf-8")
+    assert "private-token" not in saved
+    assert "private-provider-text" not in saved
+    assert "paper-1" not in saved
+    assert trace.as_dict()["scope"]["paper_id_count"] == 2
+    assert trace.as_dict()["scope"]["requested_mode"] == "bm25"

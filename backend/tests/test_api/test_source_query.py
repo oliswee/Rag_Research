@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from fastapi import HTTPException
 
 from app.config import settings
 from app.models import Paper, PaperChunk, PaperStatus, PaperType
@@ -102,3 +103,39 @@ async def test_query_uses_rewritten_search_but_answers_original_question(
     )
     assert response["retrieval_query"] == "active retrieval latency"
     assert response["rewrite_status"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_source_query_records_missing_session_failure(
+    async_db_session, monkeypatch, tmp_path
+):
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
+    with pytest.raises(HTTPException) as error:
+        await submit_query(
+            QueryRequest(
+                query="session question", retrieval_mode="bm25", session_id="missing"
+            ),
+            async_db_session,
+        )
+    assert error.value.status_code == 404
+    saved = [json.loads(line) for line in trace_path.read_text().splitlines()]
+    assert len(saved) == 1
+    assert saved[0]["support_status"] == "error"
+    assert saved[0]["failures"][0]["error_type"] == "HTTPException"
+
+
+@pytest.mark.asyncio
+async def test_query_records_database_probe_failure(monkeypatch, tmp_path):
+    class BrokenDB:
+        async def execute(self, _statement):
+            raise RuntimeError("private database detail")
+
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
+    with pytest.raises(RuntimeError):
+        await submit_query(QueryRequest(query="question"), BrokenDB())
+    saved = json.loads(trace_path.read_text().strip())
+    assert saved["support_status"] == "error"
+    assert saved["failures"][0]["error_type"] == "RuntimeError"
+    assert "private database detail" not in str(saved)

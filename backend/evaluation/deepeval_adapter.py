@@ -144,6 +144,11 @@ def evaluate_trace(
     except (KeyError, TypeError):
         result["error"] = "missing_evidence"
         return result
+    applicable_names = names if context else ("answer_relevancy",)
+    if not context:
+        for name in names:
+            if name not in applicable_names:
+                result["metrics"][name]["status"] = "not_applicable"
     try:
         started = time.perf_counter()
         real_measure = measure or partial(_measure, threshold=judge.threshold)
@@ -155,7 +160,7 @@ def evaluate_trace(
             expected_output,
             use_deepeval=measure is None,
         )
-        for name in names:
+        for name in applicable_names:
             try:
                 reading = real_measure(name, case, model)
                 score = reading["score"]
@@ -168,7 +173,10 @@ def evaluate_trace(
                 }
             except Exception as exc:
                 result["error"] = type(exc).__name__
-        if all(item["status"] == "evaluated" for item in result["metrics"].values()):
+        if all(
+            result["metrics"][name]["status"] == "evaluated"
+            for name in applicable_names
+        ) and len(applicable_names) == len(names):
             result["status"] = "evaluated"
         elif any(item["status"] == "evaluated" for item in result["metrics"].values()):
             result["status"] = "partially_evaluated"

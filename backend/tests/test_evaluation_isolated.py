@@ -109,6 +109,22 @@ async def test_isolated_benchmark_writes_versioned_retrieval_trace(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_isolated_benchmark_records_retrieval_failure(tmp_path, monkeypatch):
+    async def broken_retrieve(*_args, **_kwargs):
+        raise TimeoutError("private failure detail")
+
+    monkeypatch.setattr("evaluation.isolated_corpus.retrieve", broken_retrieve)
+    papers, chunks, labels = sample_corpus()
+    output = tmp_path / "trace.jsonl"
+    with pytest.raises(TimeoutError):
+        await evaluate_bm25(papers, chunks, labels, trace_output=output)
+    saved = json.loads(output.read_text().strip())
+    assert saved["support_status"] == "error"
+    assert saved["failures"] == [{"stage": "retrieve", "error_type": "TimeoutError"}]
+    assert "private failure detail" not in str(saved)
+
+
+@pytest.mark.asyncio
 async def test_review_status_requires_reviewer_provenance():
     papers, chunks, labels = sample_corpus()
     for case in labels:

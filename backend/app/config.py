@@ -61,6 +61,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite:///./data/research.db"
+    retrieval_trace_path: str = "data/traces/retrieval_trace.jsonl"
 
     # Qdrant
     qdrant_host: str = "localhost"

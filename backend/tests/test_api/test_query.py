@@ -1,9 +1,11 @@
 """Tests for query API routes."""
 
+import json
 from unittest.mock import AsyncMock, patch
 
 from fastapi import status
 
+from app.config import settings
 from app.schemas.session import SourceReference
 from app.workflows import QueryResult
 
@@ -11,8 +13,10 @@ from app.workflows import QueryResult
 class TestSubmitQuery:
     """Tests for POST /api/query."""
 
-    def test_query_success_creates_session(self, client_with_db):
+    def test_query_success_creates_session(self, client_with_db, monkeypatch, tmp_path):
         """New query creates session and returns answer."""
+        trace_path = tmp_path / "trace.jsonl"
+        monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
         mock_result = QueryResult(
             answer="Based on the patterns...",
             sources=[
@@ -44,6 +48,9 @@ class TestSubmitQuery:
         assert "Based on the patterns" in data["response"]
         assert len(data["sources"]) == 1
         assert data["confidence"] == "high"
+        trace = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[0])
+        assert trace["run_id"] == data["run_id"]
+        assert trace["support_status"] == "legacy_uninstrumented"
 
     def test_query_with_session_id_continues_session(self, client_with_db):
         """Query with session_id continues existing session."""

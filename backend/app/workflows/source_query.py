@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from datetime import date
 
 from sqlalchemy import func, select
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models import Paper, PaperChunk
+from app.services.retrieval_trace import RetrievalTrace
 from app.services.source_index import SourceVectorIndex, keyword_search, rrf_merge
 
 logger = logging.getLogger(__name__)
@@ -27,7 +29,9 @@ async def retrieve(
     year_from: int | None = None,
     year_to: int | None = None,
     provider: str | None = None,
+    trace: RetrievalTrace | None = None,
 ) -> tuple[list[dict], str]:
+    lexical_start = time.perf_counter()
     lexical = (
         await keyword_search(
             db,
@@ -37,13 +41,22 @@ async def retrieve(
             year_from=year_from,
             year_to=year_to,
             provider=provider,
+            with_scores=trace is not None,
         )
         if mode in {"hybrid", "bm25"}
         else []
     )
+    if trace is not None and mode in {"hybrid", "bm25"}:
+        trace.add_ranked(
+            "bm25",
+            lexical,
+            duration_ms=(time.perf_counter() - lexical_start) * 1000,
+        )
+        lexical = [chunk_id for chunk_id, _ in lexical]
     dense = []
     actual_mode = mode
     if mode in {"hybrid", "dense"}:
+        dense_start = time.perf_counter()
         try:
             from app.services.embedding_service import EmbeddingService
 
@@ -55,10 +68,21 @@ async def retrieve(
                 year_from=year_from,
                 year_to=year_to,
                 provider=provider,
+                with_scores=trace is not None,
             )
+            if trace is not None:
+                trace.add_ranked(
+                    "dense",
+                    dense,
+                    duration_ms=(time.perf_counter() - dense_start) * 1000,
+                )
+                dense = [chunk_id for chunk_id, _ in dense]
         except Exception as exc:
             logger.warning("Dense source retrieval unavailable: %s", type(exc).__name__)
+            if trace is not None:
+                trace.record_failure("dense", exc)
             if mode == "dense":
+                fallback_start = time.perf_counter()
                 lexical = await keyword_search(
                     db,
                     query,
@@ -67,9 +91,18 @@ async def retrieve(
                     year_from=year_from,
                     year_to=year_to,
                     provider=provider,
+                    with_scores=trace is not None,
                 )
+                if trace is not None:
+                    trace.add_ranked(
+                        "bm25",
+                        lexical,
+                        duration_ms=(time.perf_counter() - fallback_start) * 1000,
+                    )
+                    lexical = [chunk_id for chunk_id, _ in lexical]
             actual_mode = "bm25_fallback"
     if mode == "dense" and not dense and not lexical:
+        fallback_start = time.perf_counter()
         lexical = await keyword_search(
             db,
             query,
@@ -78,15 +111,39 @@ async def retrieve(
             year_from=year_from,
             year_to=year_to,
             provider=provider,
+            with_scores=trace is not None,
         )
+        if trace is not None:
+            trace.add_ranked(
+                "bm25",
+                lexical,
+                duration_ms=(time.perf_counter() - fallback_start) * 1000,
+            )
+            lexical = [chunk_id for chunk_id, _ in lexical]
         actual_mode = "bm25_fallback"
+    merge_start = time.perf_counter()
     ids = (
         rrf_merge([dense, lexical], limit=limit)
         if dense and lexical
         else (dense or lexical)[:limit]
     )
+    if trace is not None:
+        scores: dict[str, float] = {}
+        for ranking in (dense, lexical):
+            for rank, chunk_id in enumerate(dict.fromkeys(ranking), start=1):
+                scores[chunk_id] = scores.get(chunk_id, 0) + 1 / (60 + rank)
+        trace.add_ranked(
+            "rrf" if dense and lexical else "selected",
+            [
+                (chunk_id, scores[chunk_id] if dense and lexical else None)
+                for chunk_id in ids
+            ],
+            duration_ms=(time.perf_counter() - merge_start) * 1000,
+        )
+        trace.set_mode(actual_mode)
     if not ids:
         return [], actual_mode
+    resolve_start = time.perf_counter()
     statement = (
         select(PaperChunk, Paper)
         .join(Paper, Paper.id == PaperChunk.paper_id)
@@ -112,12 +169,19 @@ async def retrieve(
         }
         for chunk, paper in rows
     }
-    return [
+    resolved = [
         by_id[chunk_id]
         for chunk_id in ids
         if chunk_id in by_id
         and (paper_ids is None or by_id[chunk_id]["paper_id"] in paper_ids)
-    ], actual_mode
+    ]
+    if trace is not None:
+        trace.add_ranked(
+            "sqlite_resolved",
+            [(source["chunk_id"], None) for source in resolved],
+            duration_ms=(time.perf_counter() - resolve_start) * 1000,
+        )
+    return resolved, actual_mode
 
 
 async def answer_from_evidence(

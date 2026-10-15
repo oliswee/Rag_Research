@@ -6,7 +6,12 @@ import pytest
 from sqlalchemy import select
 
 from app.models import Paper, PaperChunk, PaperStatus, PaperType
-from app.services.source_index import build_chunks, keyword_search, rrf_merge
+from app.services.source_index import (
+    SourceVectorIndex,
+    build_chunks,
+    keyword_search,
+    rrf_merge,
+)
 
 
 def test_chunks_never_invent_page_numbers():
@@ -25,6 +30,22 @@ def test_chunks_never_invent_page_numbers():
 
 def test_rrf_uses_rank_and_deduplicates():
     assert rrf_merge([["a", "b"], ["b", "c"]], k=60)[0] == "b"
+
+
+def test_vector_search_can_return_ranked_scores_without_changing_default_ids():
+    class Client:
+        def collection_exists(self, _name):
+            return True
+
+        def query_points(self, *args, **kwargs):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(points=[SimpleNamespace(id="chunk-1", score=0.8)])
+
+    index = SourceVectorIndex.__new__(SourceVectorIndex)
+    index.client = Client()
+    assert index.search([0.1], with_scores=True) == [("chunk-1", 0.8)]
+    assert index.search([0.1]) == ["chunk-1"]
 
 
 @pytest.mark.asyncio
@@ -52,6 +73,9 @@ async def test_keyword_search_and_delete(async_db_session):
     await db.commit()
     hits = await keyword_search(db, "mitochondrial metabolism")
     assert len(hits) == 1
+    scored_hits = await keyword_search(db, "mitochondrial metabolism", with_scores=True)
+    assert scored_hits[0][0] == hits[0]
+    assert isinstance(scored_hits[0][1], float)
     assert await keyword_search(db, "mitochondrial", year_from=2025) == []
     assert (
         await keyword_search(db, "mitochondrial", year_to=2024, provider="openalex")

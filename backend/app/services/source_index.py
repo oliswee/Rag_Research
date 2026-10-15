@@ -118,7 +118,8 @@ async def keyword_search(
     year_from: int | None = None,
     year_to: int | None = None,
     provider: str | None = None,
-) -> list[str]:
+    with_scores: bool = False,
+) -> list[str] | list[tuple[str, float]]:
     await ensure_fts(db)
     tokens = re.findall(r"\w+", query, re.UNICODE)[:16]
     if not tokens:
@@ -149,7 +150,7 @@ async def keyword_search(
         clause += ")"
     result = await db.execute(
         text(
-            "SELECT c.id FROM paper_chunks_fts f "
+            "SELECT c.id, bm25(paper_chunks_fts) AS score FROM paper_chunks_fts f "
             "JOIN paper_chunks c ON c.rowid=f.rowid "
             "WHERE paper_chunks_fts MATCH :query"
             + clause
@@ -157,6 +158,8 @@ async def keyword_search(
         ),
         params,
     )
+    if with_scores:
+        return [(chunk_id, float(score)) for chunk_id, score in result.all()]
     return list(result.scalars())
 
 
@@ -225,7 +228,8 @@ class SourceVectorIndex:
         year_from: int | None = None,
         year_to: int | None = None,
         provider: str | None = None,
-    ) -> list[str]:
+        with_scores: bool = False,
+    ) -> list[str] | list[tuple[str, float]]:
         self.ensure_collection()
         conditions = []
         if paper_ids is not None:
@@ -241,12 +245,12 @@ class SourceVectorIndex:
                 FieldCondition(key="provider", match=MatchValue(value=provider))
             )
         query_filter = Filter(must=conditions) if conditions else None
-        return [
-            str(hit.id)
-            for hit in self.client.query_points(
-                CHUNK_COLLECTION, query=vector, query_filter=query_filter, limit=limit
-            ).points
-        ]
+        points = self.client.query_points(
+            CHUNK_COLLECTION, query=vector, query_filter=query_filter, limit=limit
+        ).points
+        if with_scores:
+            return [(str(hit.id), float(hit.score)) for hit in points]
+        return [str(hit.id) for hit in points]
 
     def delete(self, chunk_ids: list[str]) -> None:
         if chunk_ids and self.client.collection_exists(CHUNK_COLLECTION):

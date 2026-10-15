@@ -20,6 +20,11 @@ dependencies = [
     "uvicorn[standard]>=0.40.0",
 ]
 
+[project.optional-dependencies]
+evaluation = [
+    "deepeval==4.2.8",
+]
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",

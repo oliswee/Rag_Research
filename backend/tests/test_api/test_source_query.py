@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.config import settings
@@ -8,10 +10,12 @@ from app.schemas.query import FollowUpRequest, QueryRequest
 
 @pytest.mark.asyncio
 async def test_source_query_and_followup_use_local_evidence(
-    async_db_session, monkeypatch
+    async_db_session, monkeypatch, tmp_path
 ):
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "anthropic_api_key", "")
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
     paper = Paper(
         title="Source",
         authors=[],
@@ -37,6 +41,13 @@ async def test_source_query_and_followup_use_local_evidence(
     assert first["retrieval_mode"] == "bm25_fallback"
     assert first["evidence"][0]["paper_id"] == paper.id
     assert first["evidence"][0]["page_start"] is None
+    trace = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[0])
+    assert trace["run_id"] == first["run_id"]
+    assert trace["retrieval_mode"] == "bm25_fallback"
+    assert trace["rankings"]["bm25"][0]["child_id"] == first["evidence"][0]["chunk_id"]
+    assert trace["prompt_evidence_ids"] == []
+    assert trace["returned_evidence_ids"] == [first["evidence"][0]["chunk_id"]]
+    assert trace["web_decision"] == "not_implemented"
     second = await follow_up_query(
         FollowUpRequest(query="What improves?", session_id=first["session_id"]),
         async_db_session,

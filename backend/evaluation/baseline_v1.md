@@ -24,13 +24,13 @@ Run from `backend/`:
 uv run python -m evaluation.isolated_corpus --papers data/evaluation/qasper_benchmark/papers.json --chunks data/evaluation/qasper_benchmark/chunks.jsonl --labels data/evaluation/qasper_benchmark/labels.jsonl --output data/evaluation/qasper_benchmark/baseline_v1_bm25.json --trace-output data/evaluation/qasper_benchmark/retrieval_trace.jsonl --corpus-version qasper-v0.3-dev-40 --public-corpus
 ```
 
-The run uses the application's SQLite FTS5 keyword retrieval in an isolated in-memory database. All 40 Trace records contain original query, hashed paper scope, BM25 ranked IDs and raw SQLite rank score, selected IDs, resolved IDs and stage timing. No RRF fusion ran in this BM25-only baseline. Trace records contain no paper text. The 40 local full-text draft questions separately carry `verification_status: unverified`; they are not Gold.
+The run uses the application's SQLite FTS5 keyword retrieval in an isolated in-memory database. All 40 Trace records contain original query, hashed paper scope, BM25 ranked IDs and raw SQLite rank score, selected IDs, resolved IDs and stage timing. No RRF fusion ran in this BM25-only baseline. Trace records contain no paper text. The public benchmark keeps sanitized query text; private API requests store query hashes and a placeholder instead of plaintext. The 40 local full-text draft questions separately carry `verification_status: unverified`; they are not Gold.
 
 ## Observed result
 
 | Mode | Available in this run | Evidence Recall@10 | Hit@10 | MRR@10 | nDCG@10 | p50 / p95 retrieval ms |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| BM25 | Yes | 0.78125 | 0.78125 | 0.348996 | 0.447931 | 3.469 / 4.255 |
+| BM25 | Yes | 0.78125 | 0.78125 | 0.348996 | 0.447931 | 4.275 / 4.830 |
 | Dense | No: OpenAI embedding key and Qdrant unavailable | — | — | — | — | — |
 | Single-query Hybrid | No: dense path unavailable | — | — | — | — | — |
 

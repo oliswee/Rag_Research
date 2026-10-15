@@ -139,3 +139,36 @@ async def test_query_records_database_probe_failure(monkeypatch, tmp_path):
     assert saved["support_status"] == "error"
     assert saved["failures"][0]["error_type"] == "RuntimeError"
     assert "private database detail" not in str(saved)
+
+
+@pytest.mark.asyncio
+async def test_query_records_terminal_failure_after_recoverable_failure(
+    async_db_session, monkeypatch, tmp_path
+):
+    async def fake_retrieve(*_args, **kwargs):
+        kwargs["trace"].record_failure("dense", TimeoutError("dense unavailable"))
+        return [], "bm25_fallback"
+
+    async def fake_answer(*_args):
+        return "Insufficient evidence.", []
+
+    def broken_update(*_args):
+        raise RuntimeError("later private failure")
+
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
+    monkeypatch.setattr("app.routers.query.retrieve", fake_retrieve)
+    monkeypatch.setattr("app.routers.query.answer_from_evidence", fake_answer)
+    monkeypatch.setattr(
+        "app.routers.query.session_manager.update_session", broken_update
+    )
+    with pytest.raises(RuntimeError):
+        await submit_query(
+            QueryRequest(query="question", retrieval_mode="dense"), async_db_session
+        )
+    saved = json.loads(trace_path.read_text().strip())
+    assert saved["support_status"] == "error"
+    assert saved["failures"] == [
+        {"stage": "dense", "error_type": "TimeoutError"},
+        {"stage": "query", "error_type": "RuntimeError"},
+    ]

@@ -142,6 +142,50 @@ def test_private_context_requires_explicit_upload_permission():
     assert result["error"] == "private_corpus_not_allowed"
 
 
+def test_private_trace_requires_in_memory_question_when_upload_allowed():
+    result = evaluate_trace(
+        {**TRACE, "corpus_public": False, "original_query": "[private-query]"},
+        actual_output="An answer.",
+        evidence_by_id={"chunk-1": "Private source."},
+        expected_output=None,
+        judge=JudgeConfig(
+            provider="anthropic",
+            model="claude-test",
+            api_key="fake",
+            allow_private_context=True,
+        ),
+        measure=lambda *_: (_ for _ in ()).throw(AssertionError("judge called")),
+    )
+    assert result["status"] == "not_evaluated"
+    assert result["error"] == "missing_private_query"
+
+
+def test_private_question_is_used_in_memory_without_entering_result():
+    seen = []
+
+    def measure(_name, case, _model):
+        seen.append(case.input)
+        return {"score": 0.7, "cost": None}
+
+    result = evaluate_trace(
+        {**TRACE, "corpus_public": False, "original_query": "[private-query]"},
+        question="What is the private finding?",
+        actual_output="An answer.",
+        evidence_by_id={"chunk-1": "Private source."},
+        expected_output=None,
+        judge=JudgeConfig(
+            provider="anthropic",
+            model="claude-test",
+            api_key="fake",
+            allow_private_context=True,
+        ),
+        measure=measure,
+    )
+    assert result["status"] == "evaluated"
+    assert seen == ["What is the private finding?"] * 3
+    assert "private finding" not in str(result)
+
+
 def test_judge_config_rejects_unknown_provider_and_invalid_threshold():
     with pytest.raises(ValueError, match="provider"):
         JudgeConfig(provider="unknown", model="a-model", api_key="fake")

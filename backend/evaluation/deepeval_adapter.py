@@ -99,6 +99,7 @@ def evaluate_trace(
     expected_output: str | None,
     judge: JudgeConfig,
     measure: Callable[[str, object, object], dict] | None = None,
+    question: str | None = None,
 ) -> dict:
     """Evaluate an in-memory answer; persisted traces contain only evidence IDs.
 
@@ -139,6 +140,9 @@ def evaluate_trace(
     if not trace.get("corpus_public") and not judge.allow_private_context:
         result["error"] = "private_corpus_not_allowed"
         return result
+    if not trace.get("corpus_public") and not question:
+        result["error"] = "missing_private_query"
+        return result
     try:
         context = [evidence_by_id[item] for item in trace["prompt_evidence_ids"]]
     except (KeyError, TypeError):
@@ -154,7 +158,7 @@ def evaluate_trace(
         real_measure = measure or partial(_measure, threshold=judge.threshold)
         model = None if measure else _judge_model(judge)
         case = _test_case(
-            trace["original_query"],
+            question or trace["original_query"],
             actual_output,
             context,
             expected_output,
@@ -216,6 +220,7 @@ def run_batch(
                     expected_output=record.get("expected_output"),
                     judge=judge,
                     measure=measure,
+                    question=record.get("question"),
                 )
                 results.write(json.dumps(result, ensure_ascii=False) + "\n")
                 count += 1

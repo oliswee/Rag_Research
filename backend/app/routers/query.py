@@ -32,6 +32,21 @@ def _write_trace(trace: RetrievalTrace) -> None:
         logger.warning("Retrieval trace unavailable: %s", type(exc).__name__)
 
 
+def _record_terminal_failure(trace: RetrievalTrace, stage: str, exc: Exception) -> None:
+    previous = trace.record["failures"][-1:]
+    already_recorded = (
+        previous
+        and previous[0]["stage"]
+        in {
+            "query",
+            "legacy_workflow",
+        }
+        and previous[0]["error_type"] == type(exc).__name__
+    )
+    if not already_recorded:
+        trace.record_failure(stage, exc)
+
+
 @router.post("")
 async def submit_query(
     request: QueryRequest,
@@ -56,8 +71,7 @@ async def submit_query(
     try:
         return await _submit_query_impl(request, db, trace)
     except Exception as exc:
-        if not trace.record["failures"]:
-            trace.record_failure("query", exc)
+        _record_terminal_failure(trace, "query", exc)
         trace.finish("error", trace.record["prompt_evidence_ids"])
         raise
     finally:
@@ -230,8 +244,7 @@ async def follow_up_query(
     try:
         return await _follow_up_query_impl(request, db, trace)
     except Exception as exc:
-        if not trace.record["failures"]:
-            trace.record_failure("followup", exc)
+        _record_terminal_failure(trace, "followup", exc)
         trace.finish("error", trace.record["prompt_evidence_ids"])
         raise
     finally:

@@ -12,7 +12,8 @@ from pathlib import Path
 from app.config import settings
 
 _KEY_PATTERN = re.compile(
-    r"(?i)\b(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|api_key)\s*[:=]\s*\S+"
+    r"(?i)\b[A-Za-z0-9_.-]*(?:api[_-]?key|secret|access[_-]?token|"
+    r"auth[_-]?token|password)[A-Za-z0-9_.-]*[\"']?\s*[:=]\s*[\"']?[^\s,\"'}]+"
 )
 _TOKEN_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b")
 _BEARER_PATTERN = re.compile(r"(?i)\bBearer\s+\S+")
@@ -33,6 +34,10 @@ def _safe_query(query: str) -> str:
         if len(secret) >= 8:
             query = query.replace(secret, "[redacted-key]")
     return query[:500]
+
+
+def _query_digest(query: str) -> str:
+    return hashlib.sha256(query.encode("utf-8")).hexdigest()
 
 
 def _safe_scope(scope: dict) -> dict:
@@ -82,8 +87,12 @@ class RetrievalTrace:
             "retrieval_schema": "legacy_flat_v1",
             "config_version": "m1_v1",
             "corpus_public": corpus_public,
-            "original_query": _safe_query(original_query),
+            "original_query": _safe_query(original_query)
+            if corpus_public
+            else "[private-query]",
+            "original_query_sha256": _query_digest(original_query),
             "retrieval_query": None,
+            "retrieval_query_sha256": None,
             "rewrite_status": None,
             "scope": _safe_scope(scope),
             "retrieval_mode": None,
@@ -104,7 +113,12 @@ class RetrievalTrace:
         return self.record["run_id"]
 
     def record_query(self, retrieval_query: str, status: str) -> None:
-        self.record["retrieval_query"] = _safe_query(retrieval_query)
+        self.record["retrieval_query"] = (
+            _safe_query(retrieval_query)
+            if self.record["corpus_public"]
+            else "[private-query]"
+        )
+        self.record["retrieval_query_sha256"] = _query_digest(retrieval_query)
         self.record["rewrite_status"] = status
 
     def set_mode(self, mode: str) -> None:

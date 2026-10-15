@@ -53,6 +53,30 @@ def test_trace_redacts_configured_and_bearer_credentials(monkeypatch):
     assert "fixture-private-token" not in saved
 
 
+def test_private_query_text_is_not_persisted_even_for_unknown_secret_format():
+    trace = RetrievalTrace(
+        "SEMANTIC_SCHOLAR_API_KEY=another-valid-key",
+        {},
+        corpus_version="private",
+    )
+    trace.record_query("private rewrite with another-valid-key", "applied")
+    saved = str(trace.as_dict())
+    assert "another-valid-key" not in saved
+    assert trace.as_dict()["original_query"] == "[private-query]"
+    assert trace.as_dict()["original_query_sha256"]
+    assert trace.as_dict()["retrieval_query"] == "[private-query]"
+
+
+def test_public_query_redacts_named_api_keys():
+    trace = RetrievalTrace(
+        "Find SEMANTIC_SCHOLAR_API_KEY=another-valid-key paper",
+        {},
+        corpus_version="public",
+        corpus_public=True,
+    )
+    assert "another-valid-key" not in trace.as_dict()["original_query"]
+
+
 def test_trace_scope_never_persists_untrusted_paper_ids_or_provider(tmp_path):
     trace = RetrievalTrace(
         "public question",

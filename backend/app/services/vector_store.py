@@ -14,6 +14,10 @@ from qdrant_client.models import (
 )
 
 from app.config import settings
+from app.services.embedding_service import (
+    configured_embedding_dimensions,
+    embedding_collection,
+)
 
 COLLECTION_NAME = "patterns"
 VECTOR_SIZE = 1536  # OpenAI text-embedding-3-small
@@ -33,7 +37,7 @@ class VectorStoreService:
             host=host or settings.qdrant_host,
             port=port or settings.qdrant_port,
         )
-        self._collection_name = COLLECTION_NAME
+        self._collection_name = embedding_collection(COLLECTION_NAME)
 
     def ensure_collection(self) -> bool:
         """Create collection if it doesn't exist.
@@ -47,7 +51,7 @@ class VectorStoreService:
                 self.client.create_collection(
                     collection_name=self._collection_name,
                     vectors_config=VectorParams(
-                        size=VECTOR_SIZE,
+                        size=configured_embedding_dimensions(),
                         distance=Distance.COSINE,
                     ),
                 )

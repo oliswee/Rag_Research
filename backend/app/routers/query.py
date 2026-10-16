@@ -1,16 +1,21 @@
 """Query API routes."""
 
 import logging
+import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import get_db
 from app.models import Paper
 from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
+from app.services.llm_client import llm_available
+from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
 from app.workflows import QueryInput, QueryWorkflow
 from app.workflows.query_rewrite import rewrite_for_retrieval
@@ -19,6 +24,28 @@ from app.workflows.source_query import answer_from_evidence, has_source_chunks, 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/query", tags=["query"])
+
+
+def _write_trace(trace: RetrievalTrace) -> None:
+    try:
+        trace.append(Path(settings.retrieval_trace_path))
+    except OSError as exc:
+        logger.warning("Retrieval trace unavailable: %s", type(exc).__name__)
+
+
+def _record_terminal_failure(trace: RetrievalTrace, stage: str, exc: Exception) -> None:
+    previous = trace.record["failures"][-1:]
+    already_recorded = (
+        previous
+        and previous[0]["stage"]
+        in {
+            "query",
+            "legacy_workflow",
+        }
+        and previous[0]["error_type"] == type(exc).__name__
+    )
+    if not already_recorded:
+        trace.record_failure(stage, exc)
 
 
 @router.post("")
@@ -31,6 +58,30 @@ async def submit_query(
     Creates a new session if session_id is not provided.
     Returns synthesized answer with pattern citations.
     """
+    trace = RetrievalTrace(
+        request.query,
+        {
+            "paper_ids": request.paper_ids,
+            "year_from": request.year_from,
+            "year_to": request.year_to,
+            "provider": request.provider,
+            "requested_mode": request.retrieval_mode,
+        },
+        corpus_version="unversioned",
+    )
+    try:
+        return await _submit_query_impl(request, db, trace)
+    except Exception as exc:
+        _record_terminal_failure(trace, "query", exc)
+        trace.finish("error", trace.record["prompt_evidence_ids"])
+        raise
+    finally:
+        _write_trace(trace)
+
+
+async def _submit_query_impl(
+    request: QueryRequest, db: AsyncSession, trace: RetrievalTrace
+) -> dict:
     has_online_imports = (
         await db.execute(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
@@ -56,19 +107,50 @@ async def submit_query(
                 },
             )
         session = session or session_manager.create_session()
-        retrieval_query, rewrite_status = await rewrite_for_retrieval(
-            request.query, session.history, request.rewrite_query
-        )
-        evidence, mode = await retrieve(
-            db,
-            retrieval_query,
-            request.paper_ids,
-            request.retrieval_mode,
-            year_from=request.year_from,
-            year_to=request.year_to,
-            provider=request.provider,
-        )
-        answer, cited = await answer_from_evidence(request.query, evidence)
+        prompt_ids: list[str] = []
+        try:
+            rewrite_start = time.perf_counter()
+            retrieval_query, rewrite_status = await rewrite_for_retrieval(
+                request.query, session.history, request.rewrite_query
+            )
+            trace.record_query(retrieval_query, rewrite_status)
+            trace.record["stage_ms"]["rewrite"] = round(
+                (time.perf_counter() - rewrite_start) * 1000, 3
+            )
+            evidence, mode = await retrieve(
+                db,
+                retrieval_query,
+                request.paper_ids,
+                request.retrieval_mode,
+                year_from=request.year_from,
+                year_to=request.year_to,
+                provider=request.provider,
+                trace=trace,
+            )
+            prompt_ids = (
+                [item["chunk_id"] for item in evidence] if llm_available() else []
+            )
+            answer_start = time.perf_counter()
+            answer, cited = await answer_from_evidence(request.query, evidence)
+            trace.record["stage_ms"]["answer"] = round(
+                (time.perf_counter() - answer_start) * 1000, 3
+            )
+            support_status = (
+                "supported"
+                if cited and llm_available()
+                else "evidence_only"
+                if cited
+                else "abstain"
+            )
+            trace.finish(
+                support_status,
+                prompt_ids,
+                [item["chunk_id"] for item in cited],
+            )
+        except Exception as exc:
+            trace.record_failure("query", exc)
+            trace.finish("error", prompt_ids)
+            raise
         now = datetime.now(UTC)
         session_manager.update_session(
             session.session_id,
@@ -90,6 +172,7 @@ async def submit_query(
         )
         return QueryResponse(
             session_id=session.session_id,
+            run_id=trace.run_id,
             response=answer,
             sources=[],
             confidence="medium" if cited else "low",
@@ -98,14 +181,25 @@ async def submit_query(
             retrieval_query=retrieval_query,
             rewrite_status=rewrite_status,
         ).model_dump()
-    workflow = QueryWorkflow(db=db)
-    result = await workflow.run(
-        QueryInput(
-            query=request.query,
-            session_id=request.session_id,
+    trace.record_query(request.query, "legacy")
+    workflow_start = time.perf_counter()
+    try:
+        workflow = QueryWorkflow(db=db)
+        result = await workflow.run(
+            QueryInput(
+                query=request.query,
+                session_id=request.session_id,
+            )
         )
-    )
-
+        trace.record["stage_ms"]["legacy_workflow"] = round(
+            (time.perf_counter() - workflow_start) * 1000, 3
+        )
+        trace.set_mode("legacy_pattern")
+        trace.finish("legacy_uninstrumented" if result.success else "error", [])
+    except Exception as exc:
+        trace.record_failure("legacy_workflow", exc)
+        trace.finish("error", [])
+        raise
     if not result.success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -117,6 +211,7 @@ async def submit_query(
 
     return QueryResponse(
         session_id=result.session_id,
+        run_id=trace.run_id,
         response=result.answer,
         sources=result.sources,
         confidence=result.confidence,
@@ -134,6 +229,30 @@ async def follow_up_query(
     Requires a valid session_id from a previous query.
     Uses conversation history for context.
     """
+    trace = RetrievalTrace(
+        request.query,
+        {
+            "paper_ids": request.paper_ids,
+            "year_from": request.year_from,
+            "year_to": request.year_to,
+            "provider": request.provider,
+            "requested_mode": request.retrieval_mode,
+        },
+        corpus_version="unversioned",
+    )
+    try:
+        return await _follow_up_query_impl(request, db, trace)
+    except Exception as exc:
+        _record_terminal_failure(trace, "followup", exc)
+        trace.finish("error", trace.record["prompt_evidence_ids"])
+        raise
+    finally:
+        _write_trace(trace)
+
+
+async def _follow_up_query_impl(
+    request: FollowUpRequest, db: AsyncSession, trace: RetrievalTrace
+) -> dict:
     has_online_imports = (
         await db.execute(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
@@ -144,7 +263,7 @@ async def follow_up_query(
         or (request.rewrite_query and await has_source_chunks(db))
         or (has_online_imports and await has_source_chunks(db))
     ):
-        return await submit_query(
+        return await _submit_query_impl(
             QueryRequest(
                 query=request.query,
                 session_id=request.session_id,
@@ -156,15 +275,27 @@ async def follow_up_query(
                 provider=request.provider,
             ),
             db,
+            trace,
         )
-    workflow = QueryWorkflow(db=db)
-    result = await workflow.run(
-        QueryInput(
-            query=request.query,
-            session_id=request.session_id,
+    trace.record_query(request.query, "legacy")
+    workflow_start = time.perf_counter()
+    try:
+        workflow = QueryWorkflow(db=db)
+        result = await workflow.run(
+            QueryInput(
+                query=request.query,
+                session_id=request.session_id,
+            )
         )
-    )
-
+        trace.record["stage_ms"]["legacy_workflow"] = round(
+            (time.perf_counter() - workflow_start) * 1000, 3
+        )
+        trace.set_mode("legacy_pattern")
+        trace.finish("legacy_uninstrumented" if result.success else "error", [])
+    except Exception as exc:
+        trace.record_failure("legacy_workflow", exc)
+        trace.finish("error", [])
+        raise
     if not result.success:
         # Check if it's a session error
         if result.error and "session" in result.error.lower():
@@ -185,6 +316,7 @@ async def follow_up_query(
 
     return QueryResponse(
         session_id=result.session_id,
+        run_id=trace.run_id,
         response=result.answer,
         sources=result.sources,
         confidence=result.confidence,

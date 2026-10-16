@@ -53,6 +53,7 @@ class QueryResponse(BaseModel):
     """Response from a query."""
 
     session_id: str = Field(..., description="Session ID for follow-up queries")
+    run_id: str | None = None
     response: str = Field(..., description="Synthesized answer with citations")
     sources: list[SourceReference] = Field(
         default_factory=list,

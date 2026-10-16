@@ -1,4 +1,7 @@
+import json
+
 import pytest
+from fastapi import HTTPException
 
 from app.config import settings
 from app.models import Paper, PaperChunk, PaperStatus, PaperType
@@ -8,10 +11,12 @@ from app.schemas.query import FollowUpRequest, QueryRequest
 
 @pytest.mark.asyncio
 async def test_source_query_and_followup_use_local_evidence(
-    async_db_session, monkeypatch
+    async_db_session, monkeypatch, tmp_path
 ):
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "anthropic_api_key", "")
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
     paper = Paper(
         title="Source",
         authors=[],
@@ -37,6 +42,13 @@ async def test_source_query_and_followup_use_local_evidence(
     assert first["retrieval_mode"] == "bm25_fallback"
     assert first["evidence"][0]["paper_id"] == paper.id
     assert first["evidence"][0]["page_start"] is None
+    trace = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[0])
+    assert trace["run_id"] == first["run_id"]
+    assert trace["retrieval_mode"] == "bm25_fallback"
+    assert trace["rankings"]["bm25"][0]["child_id"] == first["evidence"][0]["chunk_id"]
+    assert trace["prompt_evidence_ids"] == []
+    assert trace["returned_evidence_ids"] == [first["evidence"][0]["chunk_id"]]
+    assert trace["web_decision"] == "not_implemented"
     second = await follow_up_query(
         FollowUpRequest(query="What improves?", session_id=first["session_id"]),
         async_db_session,
@@ -91,3 +103,72 @@ async def test_query_uses_rewritten_search_but_answers_original_question(
     )
     assert response["retrieval_query"] == "active retrieval latency"
     assert response["rewrite_status"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_source_query_records_missing_session_failure(
+    async_db_session, monkeypatch, tmp_path
+):
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
+    with pytest.raises(HTTPException) as error:
+        await submit_query(
+            QueryRequest(
+                query="session question", retrieval_mode="bm25", session_id="missing"
+            ),
+            async_db_session,
+        )
+    assert error.value.status_code == 404
+    saved = [json.loads(line) for line in trace_path.read_text().splitlines()]
+    assert len(saved) == 1
+    assert saved[0]["support_status"] == "error"
+    assert saved[0]["failures"][0]["error_type"] == "HTTPException"
+
+
+@pytest.mark.asyncio
+async def test_query_records_database_probe_failure(monkeypatch, tmp_path):
+    class BrokenDB:
+        async def execute(self, _statement):
+            raise RuntimeError("private database detail")
+
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
+    with pytest.raises(RuntimeError):
+        await submit_query(QueryRequest(query="question"), BrokenDB())
+    saved = json.loads(trace_path.read_text().strip())
+    assert saved["support_status"] == "error"
+    assert saved["failures"][0]["error_type"] == "RuntimeError"
+    assert "private database detail" not in str(saved)
+
+
+@pytest.mark.asyncio
+async def test_query_records_terminal_failure_after_recoverable_failure(
+    async_db_session, monkeypatch, tmp_path
+):
+    async def fake_retrieve(*_args, **kwargs):
+        kwargs["trace"].record_failure("dense", TimeoutError("dense unavailable"))
+        return [], "bm25_fallback"
+
+    async def fake_answer(*_args):
+        return "Insufficient evidence.", []
+
+    def broken_update(*_args):
+        raise RuntimeError("later private failure")
+
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
+    monkeypatch.setattr("app.routers.query.retrieve", fake_retrieve)
+    monkeypatch.setattr("app.routers.query.answer_from_evidence", fake_answer)
+    monkeypatch.setattr(
+        "app.routers.query.session_manager.update_session", broken_update
+    )
+    with pytest.raises(RuntimeError):
+        await submit_query(
+            QueryRequest(query="question", retrieval_mode="dense"), async_db_session
+        )
+    saved = json.loads(trace_path.read_text().strip())
+    assert saved["support_status"] == "error"
+    assert saved["failures"] == [
+        {"stage": "dense", "error_type": "TimeoutError"},
+        {"stage": "query", "error_type": "RuntimeError"},
+    ]

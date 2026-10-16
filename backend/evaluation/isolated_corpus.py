@@ -22,6 +22,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models import Base, Paper, PaperChunk, PaperStatus, PaperType
+from app.services.retrieval_trace import RetrievalTrace
 from app.services.source_index import ensure_fts
 from app.workflows.source_query import retrieve
 from evaluation.evaluate import hit_at_k, mrr_at_k, ndcg_at_k, recall_at_k
@@ -106,10 +107,19 @@ def summary(results: list[dict]) -> dict:
 
 
 async def evaluate_bm25(
-    papers: list[dict], chunks: list[dict], labels: list[dict]
+    papers: list[dict],
+    chunks: list[dict],
+    labels: list[dict],
+    *,
+    trace_output: Path | None = None,
+    corpus_version: str = "unversioned",
+    corpus_public: bool = False,
 ) -> dict:
     """Use the app's BM25 retrieve path without touching configured app storage."""
     validate_corpus(papers, chunks, labels)
+    if trace_output is not None:
+        trace_output.parent.mkdir(parents=True, exist_ok=True)
+        trace_output.write_text("", encoding="utf-8")
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
         async with engine.begin() as connection:
@@ -152,10 +162,37 @@ async def evaluate_bm25(
 
             results = []
             for case in labels:
-                start = time.perf_counter()
-                evidence, actual_mode = await retrieve(
-                    db, case["query"], paper_ids=case.get("paper_ids"), mode="bm25"
+                trace = (
+                    RetrievalTrace(
+                        case["query"],
+                        {"paper_ids": case.get("paper_ids"), "requested_mode": "bm25"},
+                        corpus_version=corpus_version,
+                        corpus_public=corpus_public,
+                    )
+                    if trace_output is not None
+                    else None
                 )
+                if trace is not None:
+                    trace.record_query(case["query"], "disabled")
+                start = time.perf_counter()
+                try:
+                    evidence, actual_mode = await retrieve(
+                        db,
+                        case["query"],
+                        paper_ids=case.get("paper_ids"),
+                        mode="bm25",
+                        trace=trace,
+                    )
+                    if trace is not None:
+                        trace.finish("retrieval_only", [])
+                except Exception as exc:
+                    if trace is not None:
+                        trace.record_failure("retrieve", exc)
+                        trace.finish("error", [])
+                    raise
+                finally:
+                    if trace is not None:
+                        trace.append(trace_output)
                 latency_ms = (time.perf_counter() - start) * 1000
                 if actual_mode != "bm25":
                     raise RuntimeError(f"Expected BM25, got {actual_mode}")
@@ -239,11 +276,17 @@ async def main() -> None:
     parser.add_argument("--chunks", type=Path, required=True)
     parser.add_argument("--labels", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("isolated-report.json"))
+    parser.add_argument("--trace-output", type=Path)
+    parser.add_argument("--corpus-version", default="unversioned")
+    parser.add_argument("--public-corpus", action="store_true")
     args = parser.parse_args()
     report = await evaluate_bm25(
         json.loads(args.papers.read_text(encoding="utf-8")),
         load_jsonl(args.chunks),
         load_jsonl(args.labels),
+        trace_output=args.trace_output,
+        corpus_version=args.corpus_version,
+        corpus_public=args.public_corpus,
     )
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote {args.output}; quality gate met: {report['quality_gate_met']}")

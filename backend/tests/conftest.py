@@ -10,11 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import settings
 from app.db import get_db
 from app.main import app
 from app.models.base import Base
 
 # --- Database Fixtures ---
+
+
+@pytest.fixture(autouse=True)
+def legacy_provider_defaults(monkeypatch):
+    """Keep existing remote-provider tests explicit while production defaults local."""
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    monkeypatch.setattr(settings, "embedding_provider", "openai")
 
 
 @pytest.fixture(scope="function")

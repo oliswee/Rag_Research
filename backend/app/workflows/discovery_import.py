@@ -151,7 +151,9 @@ async def import_one(
         )
         await db.commit()
         # Index is rebuildable: a failed external service never erases source content.
-        if chunks and settings.openai_api_key:
+        from app.services.embedding_service import embeddings_available
+
+        if chunks and embeddings_available():
             try:
                 from app.services.embedding_service import EmbeddingService
 

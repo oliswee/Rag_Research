@@ -26,6 +26,7 @@ def _safe_query(query: str) -> str:
     for field in (
         "anthropic_api_key",
         "openai_api_key",
+        "deepseek_api_key",
         "semantic_scholar_api_key",
         "ncbi_api_key",
         "langchain_api_key",

@@ -19,7 +19,7 @@ REFERENCE_METRICS = ("contextual_precision", "contextual_recall")
 
 @dataclass(frozen=True)
 class JudgeConfig:
-    provider: Literal["anthropic", "openai"]
+    provider: Literal["anthropic", "openai", "ollama"]
     model: str
     api_key: str
     temperature: float = 0
@@ -27,7 +27,7 @@ class JudgeConfig:
     allow_private_context: bool = False
 
     def __post_init__(self) -> None:
-        if self.provider not in {"anthropic", "openai"}:
+        if self.provider not in {"anthropic", "openai", "ollama"}:
             raise ValueError("Unsupported judge provider")
         if not self.model.strip():
             raise ValueError("Judge model is required")
@@ -36,7 +36,16 @@ class JudgeConfig:
 
 
 def _judge_model(config: JudgeConfig):
-    from deepeval.models import AnthropicModel, OpenAIModel
+    from deepeval.models import AnthropicModel, OllamaModel, OpenAIModel
+
+    if config.provider == "ollama":
+        from app.config import settings
+
+        return OllamaModel(
+            model=config.model,
+            base_url=settings.ollama_base_url.rstrip("/").removesuffix("/v1"),
+            temperature=config.temperature,
+        )
 
     model_class = AnthropicModel if config.provider == "anthropic" else OpenAIModel
     return model_class(
@@ -134,10 +143,14 @@ def evaluate_trace(
             for name in names
         },
     }
-    if not judge.api_key:
+    if judge.provider != "ollama" and not judge.api_key:
         result["error"] = "missing_key"
         return result
-    if not trace.get("corpus_public") and not judge.allow_private_context:
+    if (
+        not trace.get("corpus_public")
+        and judge.provider != "ollama"
+        and not judge.allow_private_context
+    ):
         result["error"] = "private_corpus_not_allowed"
         return result
     if not trace.get("corpus_public") and not question:
@@ -234,7 +247,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("eval_results.jsonl"))
-    parser.add_argument("--provider", choices=("anthropic", "openai"), required=True)
+    parser.add_argument(
+        "--provider", choices=("anthropic", "openai", "ollama"), required=True
+    )
     parser.add_argument("--model", required=True)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--allow-private-context", action="store_true")
@@ -245,6 +260,8 @@ def main() -> None:
         settings.anthropic_api_key
         if args.provider == "anthropic"
         else settings.openai_api_key
+        if args.provider == "openai"
+        else ""
     )
     config = JudgeConfig(
         provider=args.provider,

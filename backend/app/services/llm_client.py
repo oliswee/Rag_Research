@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import anthropic
+import openai
 from anthropic import APIConnectionError, APIError, RateLimitError
 
 from app.config import ModelID, settings
@@ -27,8 +28,19 @@ class LLMResponse:
     output_tokens: int
 
 
+def llm_available() -> bool:
+    """Whether the configured model can be called without missing credentials."""
+    if settings.llm_provider == "ollama":
+        return True
+    if settings.llm_provider == "deepseek":
+        return bool(settings.deepseek_api_key)
+    if settings.llm_provider == "anthropic":
+        return bool(settings.anthropic_api_key)
+    return False
+
+
 class LLMClient:
-    """Async Claude API client with retry logic."""
+    """Async LLM client; local Ollama is the default provider."""
 
     def __init__(
         self,
@@ -36,6 +48,7 @@ class LLMClient:
         model: str | None = None,
         max_retries: int | None = None,
         timeout_seconds: int | None = None,
+        provider: str | None = None,
     ):
         """Initialize Claude client.
 
@@ -45,21 +58,55 @@ class LLMClient:
             max_retries: Number of retry attempts for transient errors.
             timeout_seconds: Request timeout.
         """
-        self.api_key = api_key or settings.anthropic_api_key
-        self.model = model or settings.anthropic_model
+        configured = getattr(settings, "llm_provider", "anthropic")
+        self.provider = provider or (
+            "anthropic" if api_key or not isinstance(configured, str) else configured
+        )
+        if self.provider not in {"anthropic", "ollama", "deepseek"}:
+            raise ValueError(f"Unsupported LLM provider: {self.provider}")
+        if self.provider == "deepseek":
+            self.api_key = api_key or settings.deepseek_api_key
+        elif self.provider == "anthropic":
+            self.api_key = api_key or settings.anthropic_api_key
+        else:
+            self.api_key = ""
+        if self.provider == "anthropic":
+            self.model = model or settings.anthropic_model
+        elif model and model not in ModelID.all_models():
+            self.model = model
+        else:
+            self.model = (
+                settings.deepseek_model
+                if self.provider == "deepseek"
+                else settings.ollama_model
+            )
         self.max_retries = max_retries or settings.extraction_max_retries
         self.timeout_seconds = timeout_seconds or settings.extraction_timeout_seconds
 
-        if not self.api_key:
+        if self.provider == "anthropic" and not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY not configured")
+        if self.provider == "deepseek" and not self.api_key:
+            raise ValueError("DEEPSEEK_API_KEY not configured")
 
         # Validate model ID to catch typos/deprecated models early
-        ModelID.validate(self.model)
+        if self.provider == "anthropic":
+            ModelID.validate(self.model)
 
-        self.client = anthropic.AsyncAnthropic(
-            api_key=self.api_key,
-            timeout=float(self.timeout_seconds),
-        )
+        if self.provider == "anthropic":
+            self.client = anthropic.AsyncAnthropic(
+                api_key=self.api_key,
+                timeout=float(self.timeout_seconds),
+            )
+        else:
+            self.client = openai.AsyncOpenAI(
+                api_key=self.api_key if self.provider == "deepseek" else "ollama",
+                base_url=(
+                    "https://api.deepseek.com"
+                    if self.provider == "deepseek"
+                    else settings.ollama_base_url
+                ),
+                timeout=float(self.timeout_seconds),
+            )
 
     async def complete(
         self,
@@ -82,6 +129,11 @@ class LLMClient:
         Raises:
             LLMError: If all retries fail.
         """
+        if self.provider != "anthropic":
+            return await self._complete_openai_compatible(
+                system_prompt, user_prompt, max_tokens, temperature
+            )
+
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
@@ -116,6 +168,40 @@ class LLMClient:
                 raise LLMError(f"Claude API error: {e}") from e
 
         raise LLMError(f"Failed after {self.max_retries} retries: {last_error}")
+
+    async def _complete_openai_compatible(
+        self, system_prompt: str, user_prompt: str, max_tokens: int, temperature: float
+    ) -> LLMResponse:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                usage = response.usage
+                return LLMResponse(
+                    content=response.choices[0].message.content or "",
+                    model=response.model,
+                    input_tokens=usage.prompt_tokens if usage else 0,
+                    output_tokens=usage.completion_tokens if usage else 0,
+                )
+            except (openai.RateLimitError, openai.APIConnectionError) as exc:
+                last_error = exc
+                await asyncio.sleep(2**attempt)
+            except openai.APIError as exc:
+                raise LLMError(
+                    f"{self.provider} API error: {type(exc).__name__}"
+                ) from exc
+        raise LLMError(
+            f"{self.provider} failed after {self.max_retries} retries: "
+            f"{type(last_error).__name__}"
+        )
 
     async def complete_json(
         self,

@@ -71,13 +71,15 @@ async def lifespan(app: FastAPI):
     # Configure LangSmith tracing
     _configure_langsmith_tracing()
 
-    # Validate API keys (warn if missing, don't fail)
-    if not settings.anthropic_api_key:
+    # Validate credentials only for explicitly selected remote providers.
+    if settings.llm_provider == "anthropic" and not settings.anthropic_api_key:
         logger.warning(
             "ANTHROPIC_API_KEY not set - paper ingestion will fail. "
             "Set this environment variable to enable LLM features."
         )
-    if not settings.openai_api_key:
+    if settings.llm_provider == "deepseek" and not settings.deepseek_api_key:
+        logger.warning("DEEPSEEK_API_KEY not set - DeepSeek generation unavailable")
+    if settings.embedding_provider == "openai" and not settings.openai_api_key:
         logger.warning(
             "OPENAI_API_KEY not set - embeddings will fail. "
             "Set this environment variable to enable vector search."

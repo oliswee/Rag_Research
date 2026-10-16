@@ -8,7 +8,6 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models import Paper, PaperChunk
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.source_index import SourceVectorIndex, keyword_search, rrf_merge
@@ -193,10 +192,12 @@ async def answer_from_evidence(
             "Discover or import relevant papers first.",
             [],
         )
-    if not settings.anthropic_api_key:
+    from app.services.llm_client import llm_available
+
+    if not llm_available():
         return (
-            "Relevant source excerpts are shown below. Configure "
-            "ANTHROPIC_API_KEY for a synthesized answer.",
+            "Relevant source excerpts are shown below. Configure the selected "
+            "LLM provider for a synthesized answer.",
             evidence,
         )
     from app.services.llm_client import LLMClient
@@ -305,11 +306,13 @@ async def compare_evidence(
     dimension: str, question: str | None, by_paper: dict[str, list[dict]]
 ) -> list[dict]:
     """Generate cross-paper cells while validating IDs against each paper."""
-    if not settings.anthropic_api_key:
+    from app.services.llm_client import llm_available
+
+    if not llm_available():
         return [
             {
                 "paper_id": paper_id,
-                "text": "Source excerpts are shown. Configure ANTHROPIC_API_KEY "
+                "text": "Source excerpts are shown. Configure the selected LLM "
                 "to synthesize differences."
                 if evidence
                 else "Insufficient evidence found",

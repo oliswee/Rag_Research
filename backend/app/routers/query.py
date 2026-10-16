@@ -14,6 +14,7 @@ from app.db import get_db
 from app.models import Paper
 from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
+from app.services.llm_client import llm_available
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
 from app.workflows import QueryInput, QueryWorkflow
@@ -127,9 +128,7 @@ async def _submit_query_impl(
                 trace=trace,
             )
             prompt_ids = (
-                [item["chunk_id"] for item in evidence]
-                if settings.anthropic_api_key
-                else []
+                [item["chunk_id"] for item in evidence] if llm_available() else []
             )
             answer_start = time.perf_counter()
             answer, cited = await answer_from_evidence(request.query, evidence)
@@ -138,7 +137,7 @@ async def _submit_query_impl(
             )
             support_status = (
                 "supported"
-                if cited and settings.anthropic_api_key
+                if cited and llm_available()
                 else "evidence_only"
                 if cited
                 else "abstain"

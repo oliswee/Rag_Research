@@ -37,6 +37,15 @@ def test_vector_search_can_return_ranked_scores_without_changing_default_ids():
         def collection_exists(self, _name):
             return True
 
+        def get_collection(self, _name):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                config=SimpleNamespace(
+                    params=SimpleNamespace(vectors=SimpleNamespace(size=384))
+                )
+            )
+
         def query_points(self, *args, **kwargs):
             from types import SimpleNamespace
 
@@ -44,6 +53,8 @@ def test_vector_search_can_return_ranked_scores_without_changing_default_ids():
 
     index = SourceVectorIndex.__new__(SourceVectorIndex)
     index.client = Client()
+    index.dimensions = 384
+    index.dataset_id = "test-library"
     assert index.search([0.1], with_scores=True) == [("chunk-1", 0.8)]
     assert index.search([0.1]) == ["chunk-1"]
 

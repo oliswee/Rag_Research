@@ -5,7 +5,6 @@ import logging
 import re
 from typing import Literal
 
-from app.config import settings
 from app.schemas.session import ConversationTurn
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,9 @@ async def rewrite_for_retrieval(
     fallback = f"{previous} {question}" if previous else question
     if not enabled:
         return fallback, "disabled"
-    if not settings.anthropic_api_key:
+    from app.services.llm_client import llm_available
+
+    if not llm_available():
         return fallback, "unavailable"
 
     from app.services.llm_client import LLMClient

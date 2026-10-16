@@ -3,6 +3,7 @@
 import hashlib
 import re
 import uuid
+from pathlib import Path
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -20,8 +21,18 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.embedding_service import (
+    configured_embedding_dimensions,
+    embedding_collection,
+)
 
-CHUNK_COLLECTION = "source_chunks"
+CHUNK_COLLECTION = embedding_collection("source_chunks")
+
+
+def dataset_id() -> str:
+    """Scope vectors to the configured SQLite library on this machine."""
+    identity = f"{Path.cwd().resolve()}|{settings.database_url}"
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
 def build_chunks(
@@ -174,13 +185,22 @@ def rrf_merge(rankings: list[list[str]], k: int = 60, limit: int = 10) -> list[s
 class SourceVectorIndex:
     def __init__(self):
         self.client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+        self.dimensions = configured_embedding_dimensions()
+        self.dataset_id = dataset_id()
 
     def ensure_collection(self) -> None:
         if not self.client.collection_exists(CHUNK_COLLECTION):
             self.client.create_collection(
                 CHUNK_COLLECTION,
-                vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+                vectors_config=VectorParams(
+                    size=self.dimensions, distance=Distance.COSINE
+                ),
             )
+        elif (
+            self.client.get_collection(CHUNK_COLLECTION).config.params.vectors.size
+            != self.dimensions
+        ):
+            raise ValueError("Existing source vector collection has wrong dimensions")
 
     def upsert(
         self,
@@ -197,7 +217,12 @@ class SourceVectorIndex:
                 PointStruct(
                     id=chunk_id,
                     vector=vector,
-                    payload={"paper_id": paper_id, "year": year, "provider": provider},
+                    payload={
+                        "paper_id": paper_id,
+                        "year": year,
+                        "provider": provider,
+                        "dataset_id": self.dataset_id,
+                    },
                 )
             ],
         )
@@ -214,7 +239,12 @@ class SourceVectorIndex:
                 PointStruct(
                     id=chunk_id,
                     vector=vector,
-                    payload={"paper_id": paper_id, "year": year, "provider": provider},
+                    payload={
+                        "paper_id": paper_id,
+                        "year": year,
+                        "provider": provider,
+                        "dataset_id": self.dataset_id,
+                    },
                 )
                 for chunk_id, paper_id, vector, year, provider in chunks
             ],
@@ -231,7 +261,9 @@ class SourceVectorIndex:
         with_scores: bool = False,
     ) -> list[str] | list[tuple[str, float]]:
         self.ensure_collection()
-        conditions = []
+        conditions = [
+            FieldCondition(key="dataset_id", match=MatchValue(value=self.dataset_id))
+        ]
         if paper_ids is not None:
             conditions.append(
                 FieldCondition(key="paper_id", match=MatchAny(any=paper_ids))

@@ -58,6 +58,15 @@ class Settings(BaseSettings):
 
     # LLM Settings
     anthropic_model: str = ModelID.SONNET_4
+    llm_provider: str = "ollama"
+    ollama_base_url: str = "http://localhost:11434/v1/"
+    ollama_model: str = "qwen3:4b-instruct"
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-flash"
+
+    # Local embeddings are the default; OpenAI remains an explicit option.
+    embedding_provider: str = "fastembed"
+    fastembed_model: str = "BAAI/bge-small-en-v1.5"
 
     # Database
     database_url: str = "sqlite:///./data/research.db"

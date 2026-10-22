@@ -64,6 +64,8 @@ def _safe_scope(scope: dict) -> dict:
         "requested_mode": mode
         if mode in {"bm25", "dense", "hybrid", "legacy_pattern"}
         else None,
+        "local_only": scope.get("local_only") is True,
+        "latest": scope.get("latest") is True,
     }
 
 
@@ -77,6 +79,7 @@ class RetrievalTrace:
         *,
         corpus_version: str,
         corpus_public: bool = False,
+        index_version: str = "unversioned",
     ) -> None:
         self._started = time.perf_counter()
         self.record = {
@@ -84,7 +87,7 @@ class RetrievalTrace:
             "run_id": str(uuid.uuid4()),
             "started_at": datetime.now(UTC).isoformat(),
             "corpus_version": corpus_version,
-            "index_version": "unversioned",
+            "index_version": index_version,
             "retrieval_schema": "legacy_flat_v1",
             "config_version": "m1_v1",
             "corpus_public": corpus_public,
@@ -103,6 +106,10 @@ class RetrievalTrace:
             "prompt_evidence_ids": [],
             "returned_evidence_ids": [],
             "local_retry_count": 0,
+            "llm_retry_count": 0,
+            "llm_calls": 0,
+            "llm_models": [],
+            "token_usage": {"input_tokens": None, "output_tokens": None},
             "web_decision": "not_implemented",
             "web_events": [],
             "support_status": "pending",
@@ -148,6 +155,28 @@ class RetrievalTrace:
         self.record["failures"].append(
             {"stage": stage, "error_type": type(error).__name__}
         )
+
+    def record_llm_usage(
+        self, model: str, input_tokens: int | None, output_tokens: int | None
+    ) -> None:
+        self.record["llm_calls"] += 1
+        if model not in self.record["llm_models"]:
+            self.record["llm_models"].append(model)
+        for name, value in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+        ):
+            current = self.record["token_usage"][name]
+            if self.record["llm_calls"] == 1:
+                self.record["token_usage"][name] = value
+            elif value is None or current is None:
+                self.record["token_usage"][name] = None
+            else:
+                self.record["token_usage"][name] = current + value
+
+    def record_llm_retry(self, reason: str) -> None:
+        self.record["llm_retry_count"] += 1
+        self.record["failures"].append({"stage": "llm_retry", "error_type": reason})
 
     def finish(
         self,

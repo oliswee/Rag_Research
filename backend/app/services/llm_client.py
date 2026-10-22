@@ -3,13 +3,18 @@
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anthropic
+import httpx
 import openai
 from anthropic import APIConnectionError, APIError, RateLimitError
 
 from app.config import ModelID, settings
+from app.services.local_execution import local_only_request
+
+if TYPE_CHECKING:
+    from app.services.retrieval_trace import RetrievalTrace
 
 
 class LLMError(Exception):
@@ -24,8 +29,8 @@ class LLMResponse:
 
     content: str
     model: str
-    input_tokens: int
-    output_tokens: int
+    input_tokens: int | None
+    output_tokens: int | None
 
 
 def llm_available() -> bool:
@@ -82,6 +87,7 @@ class LLMClient:
             )
         self.max_retries = max_retries or settings.extraction_max_retries
         self.timeout_seconds = timeout_seconds or settings.extraction_timeout_seconds
+        self.trace: RetrievalTrace | None = None
 
         if self.provider == "anthropic" and not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY not configured")
@@ -96,6 +102,7 @@ class LLMClient:
             self.client = anthropic.AsyncAnthropic(
                 api_key=self.api_key,
                 timeout=float(self.timeout_seconds),
+                max_retries=0,
             )
         else:
             self.client = openai.AsyncOpenAI(
@@ -106,6 +113,16 @@ class LLMClient:
                     else settings.ollama_base_url
                 ),
                 timeout=float(self.timeout_seconds),
+                max_retries=0,
+                **(
+                    {
+                        "http_client": httpx.AsyncClient(
+                            trust_env=False, follow_redirects=False
+                        )
+                    }
+                    if local_only_request.get()
+                    else {}
+                ),
             )
 
     async def complete(
@@ -146,26 +163,48 @@ class LLMClient:
                     messages=[{"role": "user", "content": user_prompt}],
                 )
 
-                return LLMResponse(
+                result = LLMResponse(
                     content=response.content[0].text,
                     model=response.model,
                     input_tokens=response.usage.input_tokens,
                     output_tokens=response.usage.output_tokens,
                 )
+                if self.trace is not None:
+                    self.trace.record_llm_usage(
+                        result.model, result.input_tokens, result.output_tokens
+                    )
+                return result
 
             except RateLimitError as e:
                 last_error = e
+                if attempt + 1 >= self.max_retries:
+                    break
+                if self.trace is not None:
+                    self.trace.record_llm_retry(type(e).__name__)
                 wait_time = 2**attempt  # Exponential backoff
                 await asyncio.sleep(wait_time)
 
             except APIConnectionError as e:
                 last_error = e
+                if attempt + 1 >= self.max_retries:
+                    break
+                if self.trace is not None:
+                    self.trace.record_llm_retry(type(e).__name__)
                 wait_time = 2**attempt
                 await asyncio.sleep(wait_time)
 
             except APIError as e:
-                # Non-retryable errors (4xx except rate limit)
-                raise LLMError(f"Claude API error: {e}") from e
+                status_code = getattr(e, "status_code", None)
+                if status_code not in {408, 409} and not (
+                    status_code and status_code >= 500
+                ):
+                    raise LLMError(f"Claude API error: {e}") from e
+                last_error = e
+                if attempt + 1 >= self.max_retries:
+                    break
+                if self.trace is not None:
+                    self.trace.record_llm_retry(type(e).__name__)
+                await asyncio.sleep(2**attempt)
 
         raise LLMError(f"Failed after {self.max_retries} retries: {last_error}")
 
@@ -185,19 +224,38 @@ class LLMClient:
                     ],
                 )
                 usage = response.usage
-                return LLMResponse(
+                result = LLMResponse(
                     content=response.choices[0].message.content or "",
                     model=response.model,
-                    input_tokens=usage.prompt_tokens if usage else 0,
-                    output_tokens=usage.completion_tokens if usage else 0,
+                    input_tokens=usage.prompt_tokens if usage else None,
+                    output_tokens=usage.completion_tokens if usage else None,
                 )
+                if self.trace is not None:
+                    self.trace.record_llm_usage(
+                        result.model, result.input_tokens, result.output_tokens
+                    )
+                return result
             except (openai.RateLimitError, openai.APIConnectionError) as exc:
                 last_error = exc
+                if attempt + 1 >= self.max_retries:
+                    break
+                if self.trace is not None:
+                    self.trace.record_llm_retry(type(exc).__name__)
                 await asyncio.sleep(2**attempt)
             except openai.APIError as exc:
-                raise LLMError(
-                    f"{self.provider} API error: {type(exc).__name__}"
-                ) from exc
+                status_code = getattr(exc, "status_code", None)
+                if status_code not in {408, 409} and not (
+                    status_code and status_code >= 500
+                ):
+                    raise LLMError(
+                        f"{self.provider} API error: {type(exc).__name__}"
+                    ) from exc
+                last_error = exc
+                if attempt + 1 >= self.max_retries:
+                    break
+                if self.trace is not None:
+                    self.trace.record_llm_retry(type(exc).__name__)
+                await asyncio.sleep(2**attempt)
         raise LLMError(
             f"{self.provider} failed after {self.max_retries} retries: "
             f"{type(last_error).__name__}"

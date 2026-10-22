@@ -10,6 +10,51 @@ from app.schemas.query import FollowUpRequest, QueryRequest
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("ollama_base_url", "https://remote.example/v1"),
+        ("ollama_base_url", "http://localhost.evil.example/v1"),
+        ("qdrant_host", "remote.example"),
+    ],
+)
+async def test_local_only_rejects_remote_endpoints_before_database(
+    field, value, monkeypatch, tmp_path
+):
+    from unittest.mock import AsyncMock
+
+    from app.services.local_execution import local_only_request
+
+    monkeypatch.setattr(settings, "embedding_provider", "fastembed")
+    monkeypatch.setattr(settings, "llm_provider", "ollama")
+    monkeypatch.setattr(settings, field, value)
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(tmp_path / "trace.jsonl"))
+    db = AsyncMock()
+    with pytest.raises(HTTPException):
+        await submit_query(QueryRequest(query="private", local_only=True), db)
+    db.execute.assert_not_called()
+    assert local_only_request.get() is False
+
+
+@pytest.mark.asyncio
+async def test_local_only_rejects_configured_remote_models_before_query(
+    async_db_session, monkeypatch, tmp_path
+):
+    path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(path))
+    monkeypatch.setattr(settings, "llm_provider", "deepseek")
+    with pytest.raises(HTTPException) as error:
+        await submit_query(
+            QueryRequest(query="local question", local_only=True), async_db_session
+        )
+    assert error.value.status_code == 400
+    trace = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert trace["scope"]["local_only"] is True
+    assert trace["support_status"] == "error"
+    assert trace["llm_calls"] == 0
+
+
+@pytest.mark.asyncio
 async def test_source_query_and_followup_use_local_evidence(
     async_db_session, monkeypatch, tmp_path
 ):
@@ -61,7 +106,8 @@ async def test_source_query_and_followup_use_local_evidence(
 async def test_query_uses_rewritten_search_but_answers_original_question(
     async_db_session, monkeypatch
 ):
-    async def fake_rewrite(question, history, enabled):
+    async def fake_rewrite(question, history, enabled, trace=None):
+        assert trace is not None
         assert enabled
         assert question == "What about its latency?"
         return "active retrieval latency", "applied"
@@ -82,7 +128,8 @@ async def test_query_uses_rewritten_search_but_answers_original_question(
             }
         ], "bm25"
 
-    async def fake_answer(question, evidence):
+    async def fake_answer(question, evidence, trace=None):
+        assert trace is not None
         return f"Answer to {question}: {evidence[0]['excerpt']}", evidence
 
     monkeypatch.setattr("app.routers.query.rewrite_for_retrieval", fake_rewrite)

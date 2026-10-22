@@ -20,9 +20,22 @@ labels: data/evaluation/qasper_benchmark/labels.jsonl
 labels_sha256: 496751dc21dafddba93db95280848147eba17b58ecb584299820c9ef5dd58080
 chunker: source_index.build_chunks
 chunk_size_characters: 1200
-embedding_model: text-embedding-3-small
-embedding_dimensions: 1536
+embedding_provider: fastembed
+embedding_model: BAAI/bge-small-en-v1.5
+embedding_dimensions: 384
+generation_provider: ollama
+generation_model: qwen3:4b-instruct
+judge_provider: ollama
+judge_model: qwen3:4b-instruct
+index_dataset_id: benchmark:c0d182c5013c0edd
+retrieval_modes: [bm25, dense, hybrid]
 deepeval_version: 4.2.8
-judge_run: false
+judge_run: true
+judge_case_count: 2
+judge_reference_metrics_run: true
+judge_reference_case_count: 1
+judge_input: data/evaluation/qasper_benchmark/qasper_generation_smoke_inputs.jsonl
+judge_output: data/evaluation/qasper_benchmark/eval_results_smoke.jsonl
+judge_reference_output: data/evaluation/qasper_benchmark/eval_results_reference.jsonl
 label_status: published_human_annotations
 usage: development_only

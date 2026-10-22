@@ -50,7 +50,7 @@ class TestSubmitQuery:
         assert data["confidence"] == "high"
         trace = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[0])
         assert trace["run_id"] == data["run_id"]
-        assert trace["support_status"] == "legacy_uninstrumented"
+        assert trace["support_status"] == "cited_unverified"
 
     def test_query_with_session_id_continues_session(self, client_with_db):
         """Query with session_id continues existing session."""

@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -20,6 +21,7 @@ from app.services.prompts.synthesis import (
     build_pattern_context,
     parse_synthesis_result,
 )
+from app.services.retrieval_trace import RetrievalTrace
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class QueryInput:
     query: str
     session_id: str | None = None  # None = new session
     limit: int = 10  # Max patterns to retrieve
+    trace: RetrievalTrace | None = None
 
 
 @dataclass
@@ -119,6 +122,10 @@ class QueryWorkflow:
         Returns:
             QueryResult with answer, sources, and session ID.
         """
+        trace = input.trace
+        if trace is not None:
+            trace.record["retrieval_schema"] = "legacy_pattern_v1"
+            trace.set_mode("legacy_pattern")
         # Step 1: Get/create session
         if input.session_id:
             session = self.session_manager.get_session(input.session_id)
@@ -130,12 +137,19 @@ class QueryWorkflow:
             session = self.session_manager.create_session()
 
         # Step 2: Generate query embedding
+        embedding_start = time.perf_counter()
         try:
             embedding_result = await self.embedding_service.generate_embedding(
                 input.query
             )
             query_embedding = embedding_result.embedding
+            if trace is not None:
+                trace.record["stage_ms"]["legacy_embedding"] = round(
+                    (time.perf_counter() - embedding_start) * 1000, 3
+                )
         except Exception as e:
+            if trace is not None:
+                trace.record_failure("legacy_embedding", e)
             logger.error(f"Query embedding failed: {e}")
             return QueryResult(
                 session_id=session.session_id,
@@ -144,12 +158,27 @@ class QueryWorkflow:
             )
 
         # Step 3: Search vector store
+        search_start = time.perf_counter()
         try:
             search_results = await self.vector_store.search(
                 query_vector=query_embedding,
                 limit=input.limit,
             )
+            if trace is not None:
+                collection_name = getattr(self.vector_store, "_collection_name", None)
+                trace.record["index_version"] = (
+                    collection_name
+                    if isinstance(collection_name, str)
+                    else "legacy_pattern_unversioned"
+                )
+                trace.add_ranked(
+                    "legacy_pattern_dense",
+                    [(str(row["id"]), row.get("score")) for row in search_results],
+                    duration_ms=(time.perf_counter() - search_start) * 1000,
+                )
         except Exception as e:
+            if trace is not None:
+                trace.record_failure("legacy_pattern_dense", e)
             logger.error(f"Vector store search failed: {e}")
             return QueryResult(
                 session_id=session.session_id,
@@ -163,7 +192,14 @@ class QueryWorkflow:
 
         # Step 4: Retrieve pattern details
         pattern_ids = [r["id"] for r in search_results]
+        resolve_start = time.perf_counter()
         patterns_with_papers = await self._get_patterns_with_papers(pattern_ids)
+        if trace is not None:
+            trace.add_ranked(
+                "legacy_pattern_resolved",
+                [(pattern.id, None) for pattern, _ in patterns_with_papers],
+                duration_ms=(time.perf_counter() - resolve_start) * 1000,
+            )
 
         if not patterns_with_papers:
             return self._create_no_results_response(session.session_id, input.query)
@@ -173,6 +209,10 @@ class QueryWorkflow:
             patterns_with_papers, search_results
         )
         context_str = build_pattern_context(pattern_contexts)
+        if trace is not None:
+            trace.record["prompt_evidence_ids"] = [
+                pattern.id for pattern, _ in patterns_with_papers
+            ]
 
         # Build conversation history
         history_dicts = [
@@ -181,11 +221,20 @@ class QueryWorkflow:
         history_str = build_conversation_history(history_dicts)
 
         # Step 6: Synthesize answer
+        synthesis_start = time.perf_counter()
+        if trace is not None:
+            self.llm_client.trace = trace
         try:
             synthesis_result = await self._synthesize(
                 input.query, context_str, history_str
             )
+            if trace is not None:
+                trace.record["stage_ms"]["legacy_synthesis"] = round(
+                    (time.perf_counter() - synthesis_start) * 1000, 3
+                )
         except Exception as e:
+            if trace is not None:
+                trace.record_failure("legacy_synthesis", e)
             logger.error(f"Synthesis failed: {e}")
             return QueryResult(
                 session_id=session.session_id,

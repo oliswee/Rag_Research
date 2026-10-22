@@ -15,6 +15,7 @@ from app.models import Paper
 from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
 from app.services.llm_client import llm_available
+from app.services.local_execution import local_only_request, loopback_host, loopback_url
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
 from app.workflows import QueryInput, QueryWorkflow
@@ -24,6 +25,25 @@ from app.workflows.source_query import answer_from_evidence, has_source_chunks, 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/query", tags=["query"])
+
+
+def _enforce_local_only(local_only: bool) -> None:
+    if local_only and (
+        settings.embedding_provider != "fastembed"
+        or settings.llm_provider != "ollama"
+        or not loopback_url(settings.ollama_base_url)
+        or not loopback_host(settings.qdrant_host)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "LOCAL_ONLY_REMOTE_PROVIDER",
+                "message": (
+                    "local_only requires FastEmbed and loopback "
+                    "Ollama/Qdrant endpoints."
+                ),
+            },
+        )
 
 
 def _write_trace(trace: RetrievalTrace) -> None:
@@ -66,9 +86,12 @@ async def submit_query(
             "year_to": request.year_to,
             "provider": request.provider,
             "requested_mode": request.retrieval_mode,
+            "local_only": request.local_only,
+            "latest": request.latest,
         },
         corpus_version="unversioned",
     )
+    local_token = local_only_request.set(request.local_only)
     try:
         return await _submit_query_impl(request, db, trace)
     except Exception as exc:
@@ -76,12 +99,14 @@ async def submit_query(
         trace.finish("error", trace.record["prompt_evidence_ids"])
         raise
     finally:
+        local_only_request.reset(local_token)
         _write_trace(trace)
 
 
 async def _submit_query_impl(
     request: QueryRequest, db: AsyncSession, trace: RetrievalTrace
 ) -> dict:
+    _enforce_local_only(request.local_only)
     has_online_imports = (
         await db.execute(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
@@ -111,7 +136,7 @@ async def _submit_query_impl(
         try:
             rewrite_start = time.perf_counter()
             retrieval_query, rewrite_status = await rewrite_for_retrieval(
-                request.query, session.history, request.rewrite_query
+                request.query, session.history, request.rewrite_query, trace=trace
             )
             trace.record_query(retrieval_query, rewrite_status)
             trace.record["stage_ms"]["rewrite"] = round(
@@ -131,7 +156,7 @@ async def _submit_query_impl(
                 [item["chunk_id"] for item in evidence] if llm_available() else []
             )
             answer_start = time.perf_counter()
-            answer, cited = await answer_from_evidence(request.query, evidence)
+            answer, cited = await answer_from_evidence(request.query, evidence, trace)
             trace.record["stage_ms"]["answer"] = round(
                 (time.perf_counter() - answer_start) * 1000, 3
             )
@@ -189,13 +214,22 @@ async def _submit_query_impl(
             QueryInput(
                 query=request.query,
                 session_id=request.session_id,
+                trace=trace,
             )
         )
         trace.record["stage_ms"]["legacy_workflow"] = round(
             (time.perf_counter() - workflow_start) * 1000, 3
         )
-        trace.set_mode("legacy_pattern")
-        trace.finish("legacy_uninstrumented" if result.success else "error", [])
+        support_status = (
+            "error"
+            if not result.success
+            else ("cited_unverified" if result.sources else "abstain")
+        )
+        trace.finish(
+            support_status,
+            trace.record["prompt_evidence_ids"],
+            [source.pattern_id for source in result.sources],
+        )
     except Exception as exc:
         trace.record_failure("legacy_workflow", exc)
         trace.finish("error", [])
@@ -237,9 +271,12 @@ async def follow_up_query(
             "year_to": request.year_to,
             "provider": request.provider,
             "requested_mode": request.retrieval_mode,
+            "local_only": request.local_only,
+            "latest": request.latest,
         },
         corpus_version="unversioned",
     )
+    local_token = local_only_request.set(request.local_only)
     try:
         return await _follow_up_query_impl(request, db, trace)
     except Exception as exc:
@@ -247,12 +284,14 @@ async def follow_up_query(
         trace.finish("error", trace.record["prompt_evidence_ids"])
         raise
     finally:
+        local_only_request.reset(local_token)
         _write_trace(trace)
 
 
 async def _follow_up_query_impl(
     request: FollowUpRequest, db: AsyncSession, trace: RetrievalTrace
 ) -> dict:
+    _enforce_local_only(request.local_only)
     has_online_imports = (
         await db.execute(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
@@ -270,6 +309,8 @@ async def _follow_up_query_impl(
                 paper_ids=request.paper_ids,
                 retrieval_mode=request.retrieval_mode or "dense",
                 rewrite_query=request.rewrite_query,
+                local_only=request.local_only,
+                latest=request.latest,
                 year_from=request.year_from,
                 year_to=request.year_to,
                 provider=request.provider,
@@ -285,13 +326,22 @@ async def _follow_up_query_impl(
             QueryInput(
                 query=request.query,
                 session_id=request.session_id,
+                trace=trace,
             )
         )
         trace.record["stage_ms"]["legacy_workflow"] = round(
             (time.perf_counter() - workflow_start) * 1000, 3
         )
-        trace.set_mode("legacy_pattern")
-        trace.finish("legacy_uninstrumented" if result.success else "error", [])
+        support_status = (
+            "error"
+            if not result.success
+            else ("cited_unverified" if result.sources else "abstain")
+        )
+        trace.finish(
+            support_status,
+            trace.record["prompt_evidence_ids"],
+            [source.pattern_id for source in result.sources],
+        )
     except Exception as exc:
         trace.record_failure("legacy_workflow", exc)
         trace.finish("error", [])

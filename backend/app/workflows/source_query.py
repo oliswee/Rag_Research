@@ -10,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Paper, PaperChunk
 from app.services.retrieval_trace import RetrievalTrace
-from app.services.source_index import SourceVectorIndex, keyword_search, rrf_merge
+from app.services.source_index import (
+    CHUNK_COLLECTION,
+    SourceVectorIndex,
+    dataset_id,
+    keyword_search,
+    rrf_merge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,13 @@ async def retrieve(
     year_to: int | None = None,
     provider: str | None = None,
     trace: RetrievalTrace | None = None,
+    vector_index: SourceVectorIndex | None = None,
 ) -> tuple[list[dict], str]:
+    if trace is not None:
+        vector_scope = vector_index.dataset_id if vector_index else dataset_id()
+        trace.record["index_version"] = (
+            "sqlite_fts5" if mode == "bm25" else f"{CHUNK_COLLECTION}:{vector_scope}"
+        )
     lexical_start = time.perf_counter()
     lexical = (
         await keyword_search(
@@ -60,7 +72,7 @@ async def retrieve(
             from app.services.embedding_service import EmbeddingService
 
             vector = (await EmbeddingService().generate_embedding(query)).embedding
-            dense = SourceVectorIndex().search(
+            dense = (vector_index or SourceVectorIndex()).search(
                 vector,
                 paper_ids,
                 limit=30,
@@ -184,7 +196,7 @@ async def retrieve(
 
 
 async def answer_from_evidence(
-    query: str, evidence: list[dict]
+    query: str, evidence: list[dict], trace: RetrievalTrace | None = None
 ) -> tuple[str, list[dict]]:
     if not evidence:
         return (
@@ -208,6 +220,8 @@ async def answer_from_evidence(
         for source in evidence
     )
     client = LLMClient()
+    if trace is not None:
+        client.trace = trace
     result = await client.complete_json(
         system_prompt=(
             'Answer only from provided excerpts. Return JSON: {"claims":'

@@ -9,6 +9,7 @@ import openai
 from openai import APIConnectionError, APIError, RateLimitError
 
 from app.config import settings
+from app.services.local_execution import local_only_request
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,9 @@ class EmbeddingService:
         from fastembed import TextEmbedding
 
         if self._local_model is None:
-            self._local_model = TextEmbedding(model_name=self.model)
+            self._local_model = TextEmbedding(
+                model_name=self.model, local_files_only=local_only_request.get()
+            )
         return [vector.tolist() for vector in self._local_model.embed(texts)]
 
     def prepare_embedding_text(self, pattern_data: dict) -> str:

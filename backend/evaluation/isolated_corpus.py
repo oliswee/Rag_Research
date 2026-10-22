@@ -1,4 +1,4 @@
-"""Evaluate labelled source chunks through BM25 in an isolated SQLite database.
+"""Evaluate labelled source chunks through the app's retrieval modes.
 
 Usage from backend/:
     uv run python -m evaluation.isolated_corpus \
@@ -13,17 +13,20 @@ optional paper_ids list limits retrieval to those papers for that question.
 
 import argparse
 import asyncio
+import hashlib
 import json
 import math
 import statistics
 import time
 from pathlib import Path
 
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models import Base, Paper, PaperChunk, PaperStatus, PaperType
+from app.services.embedding_service import EmbeddingService
 from app.services.retrieval_trace import RetrievalTrace
-from app.services.source_index import ensure_fts
+from app.services.source_index import CHUNK_COLLECTION, SourceVectorIndex, ensure_fts
 from app.workflows.source_query import retrieve
 from evaluation.evaluate import hit_at_k, mrr_at_k, ndcg_at_k, recall_at_k
 
@@ -106,6 +109,57 @@ def summary(results: list[dict]) -> dict:
     }
 
 
+async def prepare_vector_index(
+    chunks: list[dict], corpus_version: str, embedder: EmbeddingService
+) -> SourceVectorIndex:
+    """Reuse a complete benchmark scope, or fill it before querying."""
+    identity = json.dumps(
+        [corpus_version, embedder.model, [(c["id"], c["checksum"]) for c in chunks]],
+        separators=(",", ":"),
+    )
+    scope = "benchmark:" + hashlib.sha256(identity.encode()).hexdigest()[:16]
+    index = SourceVectorIndex(dataset_id_override=scope)
+    try:
+        index.ensure_collection()
+        # A payload filter isolates searches, but point IDs are collection-wide.
+        # Check every batch before writing anything, including on cache reuse.
+        for offset in range(0, len(chunks), 200):
+            points = index.client.retrieve(
+                CHUNK_COLLECTION,
+                ids=[c["id"] for c in chunks[offset : offset + 200]],
+                with_payload=True,
+                with_vectors=False,
+            )
+            if any(
+                (point.payload or {}).get("dataset_id") != scope for point in points
+            ):
+                raise ValueError("Benchmark chunk ID collides with another dataset")
+        existing = index.client.count(
+            CHUNK_COLLECTION,
+            count_filter=Filter(
+                must=[FieldCondition(key="dataset_id", match=MatchValue(value=scope))]
+            ),
+            exact=True,
+        ).count
+        if existing != len(chunks):
+            for offset in range(0, len(chunks), 20):
+                batch = chunks[offset : offset + 20]
+                vectors = await embedder.generate_text_batch([c["text"] for c in batch])
+                index.upsert_many(
+                    [
+                        (c["id"], c["paper_id"], v, None, "qasper")
+                        for c, v in zip(batch, vectors, strict=True)
+                    ]
+                )
+                done = offset + len(batch)
+                if done % 200 == 0 or done == len(chunks):
+                    print(f"Indexed {done}/{len(chunks)} benchmark chunks", flush=True)
+        return index
+    except Exception:
+        index.client.close()
+        raise
+
+
 async def evaluate_bm25(
     papers: list[dict],
     chunks: list[dict],
@@ -114,14 +168,23 @@ async def evaluate_bm25(
     trace_output: Path | None = None,
     corpus_version: str = "unversioned",
     corpus_public: bool = False,
+    mode: str = "bm25",
 ) -> dict:
-    """Use the app's BM25 retrieve path without touching configured app storage."""
+    """Use the app retrieval path with isolated SQLite and benchmark-scoped vectors."""
+    if mode not in {"bm25", "dense", "hybrid"}:
+        raise ValueError(f"Unsupported retrieval mode: {mode}")
     validate_corpus(papers, chunks, labels)
+    index = None
     if trace_output is not None:
         trace_output.parent.mkdir(parents=True, exist_ok=True)
         trace_output.write_text("", encoding="utf-8")
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
+        if mode != "bm25":
+            embedder = EmbeddingService()
+            if embedder.provider != "fastembed":
+                raise ValueError("Benchmark indexing requires local FastEmbed")
+            index = await prepare_vector_index(chunks, corpus_version, embedder)
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -165,9 +228,10 @@ async def evaluate_bm25(
                 trace = (
                     RetrievalTrace(
                         case["query"],
-                        {"paper_ids": case.get("paper_ids"), "requested_mode": "bm25"},
+                        {"paper_ids": case.get("paper_ids"), "requested_mode": mode},
                         corpus_version=corpus_version,
                         corpus_public=corpus_public,
+                        index_version=index.dataset_id if index else "sqlite_fts5",
                     )
                     if trace_output is not None
                     else None
@@ -180,8 +244,9 @@ async def evaluate_bm25(
                         db,
                         case["query"],
                         paper_ids=case.get("paper_ids"),
-                        mode="bm25",
+                        mode=mode,
                         trace=trace,
+                        vector_index=index,
                     )
                     if trace is not None:
                         trace.finish("retrieval_only", [])
@@ -194,8 +259,8 @@ async def evaluate_bm25(
                     if trace is not None:
                         trace.append(trace_output)
                 latency_ms = (time.perf_counter() - start) * 1000
-                if actual_mode != "bm25":
-                    raise RuntimeError(f"Expected BM25, got {actual_mode}")
+                if actual_mode != mode:
+                    raise RuntimeError(f"Expected {mode}, got {actual_mode}")
                 ranked = [source["chunk_id"] for source in evidence]
                 relevant = set(case["relevant_chunk_ids"])
                 results.append(
@@ -217,7 +282,9 @@ async def evaluate_bm25(
         groups = sorted({result["group"] for result in results})
         splits = sorted({result["split"] for result in results})
         return {
-            "scope": "isolated_app_bm25",
+            "scope": f"isolated_app_{mode}",
+            "embedding_model": embedder.model if index is not None else None,
+            "vector_dataset_id": index.dataset_id if index is not None else None,
             "paper_count": len(papers),
             "chunk_count": len(chunks),
             "label_count": len(labels),
@@ -252,14 +319,16 @@ async def evaluate_bm25(
             "results": results,
             "quality_gate_met": False,
             "limitations": [
-                "BM25-only; no dense or hybrid comparison, answer generation, "
-                "or citation review.",
+                "Single-mode retrieval report; compare the separate mode runs.",
+                "Answer generation and citation review are separate.",
                 "Review status requires a reviewer and review date; "
                 "metadata alone cannot prove independent review.",
             ],
         }
     finally:
         await engine.dispose()
+        if index is not None:
+            index.client.close()
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -279,6 +348,7 @@ async def main() -> None:
     parser.add_argument("--trace-output", type=Path)
     parser.add_argument("--corpus-version", default="unversioned")
     parser.add_argument("--public-corpus", action="store_true")
+    parser.add_argument("--mode", choices=("bm25", "dense", "hybrid"), default="bm25")
     args = parser.parse_args()
     report = await evaluate_bm25(
         json.loads(args.papers.read_text(encoding="utf-8")),
@@ -287,6 +357,7 @@ async def main() -> None:
         trace_output=args.trace_output,
         corpus_version=args.corpus_version,
         corpus_public=args.public_corpus,
+        mode=args.mode,
     )
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote {args.output}; quality gate met: {report['quality_gate_met']}")

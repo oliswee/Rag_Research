@@ -25,6 +25,7 @@ from app.services.embedding_service import (
     configured_embedding_dimensions,
     embedding_collection,
 )
+from app.services.local_execution import local_only_request
 
 CHUNK_COLLECTION = embedding_collection("source_chunks")
 
@@ -183,10 +184,18 @@ def rrf_merge(rankings: list[list[str]], k: int = 60, limit: int = 10) -> list[s
 
 
 class SourceVectorIndex:
-    def __init__(self):
-        self.client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    def __init__(self, *, dataset_id_override: str | None = None):
+        self.client = QdrantClient(
+            host=settings.qdrant_host,
+            port=settings.qdrant_port,
+            **(
+                {"trust_env": False, "follow_redirects": False}
+                if local_only_request.get()
+                else {}
+            ),
+        )
         self.dimensions = configured_embedding_dimensions()
-        self.dataset_id = dataset_id()
+        self.dataset_id = dataset_id_override or dataset_id()
 
     def ensure_collection(self) -> None:
         if not self.client.collection_exists(CHUNK_COLLECTION):

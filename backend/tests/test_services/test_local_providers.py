@@ -3,13 +3,61 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import openai
 import pytest
 
 from app.config import ModelID, settings
 from app.services.embedding_service import EmbeddingService, embedding_collection
 from app.services.llm_client import LLMClient
+from app.services.retrieval_trace import RetrievalTrace
 from app.services.source_index import SourceVectorIndex
 from evaluation.deepeval_adapter import JudgeConfig, evaluate_trace
+
+
+def test_local_only_embedding_uses_cached_files(monkeypatch):
+    from app.services.local_execution import local_only_request
+
+    monkeypatch.setattr(settings, "embedding_provider", "fastembed")
+    token = local_only_request.set(True)
+    try:
+        with patch("fastembed.TextEmbedding") as model:
+            model.return_value.embed.return_value = []
+            EmbeddingService()._embed_local(["private text"])
+            assert model.call_args.kwargs["local_files_only"] is True
+    finally:
+        local_only_request.reset(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [408, 409, 429, 503])
+async def test_local_llm_retries_are_bounded_and_counted(status_code, monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "ollama")
+    request = httpx.Request("POST", "http://localhost:11434/v1/chat/completions")
+    error = openai.APIStatusError(
+        "temporary", response=httpx.Response(status_code, request=request), body=None
+    )
+    if status_code == 429:
+        error = openai.RateLimitError(
+            "temporary",
+            response=httpx.Response(status_code, request=request),
+            body=None,
+        )
+    with (
+        patch("app.services.llm_client.openai.AsyncOpenAI") as sdk,
+        patch("asyncio.sleep", new_callable=AsyncMock) as sleep,
+    ):
+        sdk.return_value.chat.completions.create = AsyncMock(side_effect=error)
+        client = LLMClient(max_retries=2)
+        client.trace = RetrievalTrace("q", {}, corpus_version="test")
+        from app.services.llm_client import LLMError
+
+        with pytest.raises(LLMError):
+            await client.complete("system", "question")
+        assert sdk.call_args.kwargs["max_retries"] == 0
+        assert sdk.return_value.chat.completions.create.await_count == 2
+        assert client.trace.record["llm_retry_count"] == 1
+        assert sleep.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -47,12 +95,16 @@ async def test_ollama_needs_no_key_and_uses_instruct_model(monkeypatch):
             return_value=response
         )
         client = LLMClient(model=ModelID.SONNET_4)
+        trace = RetrievalTrace("local question", {}, corpus_version="test")
+        client.trace = trace
         result = await client.complete("Respond briefly", "Say hello", max_tokens=20)
 
     assert client.model == "qwen3:4b-instruct"
     assert result.content == "你好"
     assert result.input_tokens == 5
     assert result.output_tokens == 2
+    assert trace.as_dict()["token_usage"] == {"input_tokens": 5, "output_tokens": 2}
+    assert trace.as_dict()["llm_calls"] == 1
     assert client_class.call_args.kwargs["base_url"] == "http://localhost:11434/v1/"
 
 

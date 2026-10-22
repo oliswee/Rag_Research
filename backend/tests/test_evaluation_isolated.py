@@ -1,8 +1,34 @@
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from evaluation.isolated_corpus import evaluate_bm25, validate_corpus
+from evaluation.isolated_corpus import (
+    evaluate_bm25,
+    prepare_vector_index,
+    validate_corpus,
+)
+
+
+@pytest.mark.asyncio
+async def test_benchmark_preflights_all_ids_before_any_write(monkeypatch):
+    chunks = [{"id": str(i), "checksum": str(i)} for i in range(201)]
+    index = MagicMock()
+    index.client.retrieve.side_effect = [
+        [],
+        [SimpleNamespace(payload={"dataset_id": "library"})],
+    ]
+    monkeypatch.setattr(
+        "evaluation.isolated_corpus.SourceVectorIndex", lambda **_: index
+    )
+    embedder = SimpleNamespace(model="local", generate_text_batch=AsyncMock())
+    with pytest.raises(ValueError, match="collides"):
+        await prepare_vector_index(chunks, "test", embedder)
+    assert index.client.retrieve.call_count == 2
+    embedder.generate_text_batch.assert_not_called()
+    index.upsert_many.assert_not_called()
+    index.client.close.assert_called_once()
 
 
 def sample_corpus():

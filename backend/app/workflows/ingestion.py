@@ -22,6 +22,7 @@ from app.services import (
     PDFParseError,
     PDFParserService,
 )
+from app.services.pdf_parser import parser_warnings
 from app.services.source_index import SourceVectorIndex, build_chunks
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,7 @@ class IngestionWorkflow:
                 text_content = parse_result.text
                 pdf_metadata = parse_result.metadata
                 source_pages = [(page.text, page.number) for page in parse_result.pages]
+                warnings.extend(parser_warnings(parse_result))
             except PDFParseError as e:
                 logger.error(f"PDF parse failed: {e}")
                 return IngestionResult(

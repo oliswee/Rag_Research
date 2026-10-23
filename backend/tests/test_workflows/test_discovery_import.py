@@ -12,6 +12,42 @@ from app.workflows import discovery_import
 from app.workflows.discovery_import import import_one
 
 
+@pytest.mark.asyncio
+async def test_open_pdf_import_reports_unreadable_pages(async_db_session, monkeypatch):
+    import fitz
+
+    document = fitz.open()
+    document.new_page().insert_text((50, 80), "Readable methods.")
+    document.new_page()
+    data = document.tobytes()
+    document.close()
+
+    class OpenDiscovery(FakeDiscovery):
+        async def get_candidate(self, provider, provider_id):
+            result = await super().get_candidate(provider, provider_id)
+            result.update(pdf_url="https://example.org/open.pdf", open_access=True)
+            return result
+
+    async def download(url):
+        return data
+
+    monkeypatch.setattr(discovery_import, "download_pdf", download)
+    monkeypatch.setattr("app.config.settings.openai_api_key", "")
+    job = ImportJob()
+    async_db_session.add(job)
+    await async_db_session.flush()
+    item = ImportItem(
+        job_id=job.id, provider="openalex", provider_id="W123", candidate={}
+    )
+    async_db_session.add(item)
+    await async_db_session.flush()
+    await import_one(async_db_session, item, OpenDiscovery())
+    assert item.status == "done"
+    assert "PDF page 2: no_extractable_text" in (item.warning or "")
+    chunks = (await async_db_session.execute(select(PaperChunk))).scalars().all()
+    assert chunks and {chunk.page_start for chunk in chunks} == {1}
+
+
 class FakeDiscovery:
     async def get_candidate(self, provider, provider_id):
         return {

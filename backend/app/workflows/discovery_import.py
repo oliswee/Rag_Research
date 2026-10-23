@@ -20,7 +20,7 @@ from app.models import (
 from app.services.discovery import DiscoveryService
 from app.services.fulltext_locations import FullTextResolver
 from app.services.pdf_download import download_pdf
-from app.services.pdf_parser import PDFParserService
+from app.services.pdf_parser import PDFParserService, parser_warnings
 from app.services.source_index import SourceVectorIndex, build_chunks
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,7 @@ async def import_one(
                     max_pages=min(settings.max_pdf_pages, 200)
                 ).parse(payload)
                 pages = [(page.text, page.number) for page in parsed.pages]
+                warnings.extend(parser_warnings(parsed))
                 scope = "full_text"
                 content_url = candidate["pdf_url"]
             except Exception as exc:
@@ -94,6 +95,7 @@ async def import_one(
                             max_pages=min(settings.max_pdf_pages, 200)
                         ).parse(payload)
                         pages = [(page.text, page.number) for page in parsed.pages]
+                        warnings.extend(parser_warnings(parsed))
                         if not any(text.strip() for text, _ in pages):
                             raise ValueError("Open copy contains no extractable text")
                         scope = "full_text"

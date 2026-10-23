@@ -90,6 +90,8 @@ async def test_source_query_and_followup_use_local_evidence(
     trace = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[0])
     assert trace["run_id"] == first["run_id"]
     assert trace["retrieval_mode"] == "bm25_fallback"
+    assert trace["index_locator"] == "sqlite_fts5"
+    assert any("source_chunks" in item for item in trace["attempted_index_locators"])
     assert trace["rankings"]["bm25"][0]["child_id"] == first["evidence"][0]["chunk_id"]
     assert trace["prompt_evidence_ids"] == []
     assert trace["returned_evidence_ids"] == [first["evidence"][0]["chunk_id"]]

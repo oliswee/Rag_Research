@@ -26,6 +26,8 @@ async def test_generation_records_own_calls_and_links_retrieval(monkeypatch):
         "run_id": "retrieval-1",
         "corpus_version": "test",
         "index_version": "index",
+        "index_locator": "source_collection:scope",
+        "config_version": "retrieval-config",
         "total_ms": 25,
         "rankings": {},
     }
@@ -34,6 +36,8 @@ async def test_generation_records_own_calls_and_links_retrieval(monkeypatch):
     )
     assert trace["run_id"] != "retrieval-1"
     assert trace["retrieval_run_id"] == "retrieval-1"
+    assert trace["index_locator"] == "source_collection:scope"
+    assert trace["retrieval_config_version"] == "retrieval-config"
     assert trace["llm_calls"] == 1
     assert trace["token_usage"] == {"input_tokens": 5, "output_tokens": 2}
     assert trace["returned_evidence_ids"] == ["c"]

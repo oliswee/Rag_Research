@@ -39,7 +39,7 @@ async def retrieve(
 ) -> tuple[list[dict], str]:
     if trace is not None:
         vector_scope = vector_index.dataset_id if vector_index else dataset_id()
-        trace.record["index_version"] = (
+        trace.record_index(
             "sqlite_fts5" if mode == "bm25" else f"{CHUNK_COLLECTION}:{vector_scope}"
         )
     lexical_start = time.perf_counter()
@@ -139,6 +139,8 @@ async def retrieve(
         else (dense or lexical)[:limit]
     )
     if trace is not None:
+        if actual_mode == "bm25_fallback":
+            trace.record_index("sqlite_fts5")
         scores: dict[str, float] = {}
         for ranking in (dense, lexical):
             for rank, chunk_id in enumerate(dict.fromkeys(ranking), start=1):

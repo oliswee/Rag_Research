@@ -119,6 +119,10 @@ async def generate_answer(label: dict, evidence: list[dict], retrieval: dict) ->
     )
     trace.record.update(
         retrieval_run_id=retrieval["run_id"],
+        retrieval_config_version=retrieval.get("config_version"),
+        index_locator=retrieval.get("index_locator", retrieval["index_version"]),
+        attempted_index_locators=list(retrieval.get("attempted_index_locators", [])),
+        physical_index_revision=retrieval.get("physical_index_revision"),
         retrieval_ms=retrieval["total_ms"],
         timing_scope="generation",
         rankings=retrieval["rankings"],

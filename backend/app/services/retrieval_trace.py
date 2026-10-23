@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import settings
+from app.services.trace_versions import configuration_snapshot, digest
 
 _KEY_PATTERN = re.compile(
     r"(?i)\b[A-Za-z0-9_.-]*(?:api[_-]?key|secret|access[_-]?token|"
@@ -82,14 +83,19 @@ class RetrievalTrace:
         index_version: str = "unversioned",
     ) -> None:
         self._started = time.perf_counter()
+        config_version, config_manifest = configuration_snapshot()
         self.record = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": str(uuid.uuid4()),
             "started_at": datetime.now(UTC).isoformat(),
             "corpus_version": corpus_version,
             "index_version": index_version,
+            "index_locator": index_version,
+            "attempted_index_locators": [],
+            "physical_index_revision": None,
             "retrieval_schema": "legacy_flat_v1",
-            "config_version": "m1_v1",
+            "config_version": config_version,
+            "config_manifest": config_manifest,
             "corpus_public": corpus_public,
             "original_query": _safe_query(original_query)
             if corpus_public
@@ -131,6 +137,19 @@ class RetrievalTrace:
 
     def set_mode(self, mode: str) -> None:
         self.record["retrieval_mode"] = mode
+
+    def record_index(self, locator: str) -> None:
+        """Name the logical index; do not imply a physical consistency check."""
+        self.record["index_locator"] = locator
+        if locator not in self.record["attempted_index_locators"]:
+            self.record["attempted_index_locators"].append(locator)
+        self.record["index_version"] = "logical:sha256:" + digest(
+            {
+                "corpus_version": self.record["corpus_version"],
+                "config_version": self.record["config_version"],
+                "locator": locator,
+            }
+        )
 
     def add_ranked(
         self,

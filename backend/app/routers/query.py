@@ -18,6 +18,7 @@ from app.services.llm_client import llm_available
 from app.services.local_execution import local_only_request, loopback_host, loopback_url
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
+from app.services.trace_versions import corpus_version
 from app.workflows import QueryInput, QueryWorkflow
 from app.workflows.query_rewrite import rewrite_for_retrieval
 from app.workflows.source_query import answer_from_evidence, has_source_chunks, retrieve
@@ -68,6 +69,22 @@ def _record_terminal_failure(trace: RetrievalTrace, stage: str, exc: Exception) 
         trace.record_failure(stage, exc)
 
 
+async def _capture_corpus_version(db: AsyncSession, trace: RetrievalTrace) -> None:
+    if trace.record["corpus_version"] != "unversioned":
+        return
+    started = time.perf_counter()
+    try:
+        trace.record["corpus_version"] = await corpus_version(db)
+    except Exception as exc:
+        trace.record["corpus_version"] = "unavailable"
+        trace.record_failure("corpus_snapshot", exc)
+        raise
+    finally:
+        trace.record["stage_ms"]["corpus_snapshot"] = round(
+            (time.perf_counter() - started) * 1000, 3
+        )
+
+
 @router.post("")
 async def submit_query(
     request: QueryRequest,
@@ -112,6 +129,7 @@ async def _submit_query_impl(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
         )
     ).scalar_one_or_none() is not None
+    await _capture_corpus_version(db, trace)
     if (
         "retrieval_mode" in request.model_fields_set
         or request.paper_ids is not None
@@ -207,6 +225,7 @@ async def _submit_query_impl(
             rewrite_status=rewrite_status,
         ).model_dump()
     trace.record_query(request.query, "legacy")
+    trace.record_index("legacy_pattern_unavailable")
     workflow_start = time.perf_counter()
     try:
         workflow = QueryWorkflow(db=db)
@@ -297,6 +316,7 @@ async def _follow_up_query_impl(
             select(Paper.id).where(Paper.import_source.is_not(None)).limit(1)
         )
     ).scalar_one_or_none() is not None
+    await _capture_corpus_version(db, trace)
     if (
         request.retrieval_mode
         or (request.rewrite_query and await has_source_chunks(db))
@@ -319,6 +339,7 @@ async def _follow_up_query_impl(
             trace,
         )
     trace.record_query(request.query, "legacy")
+    trace.record_index("legacy_pattern_unavailable")
     workflow_start = time.perf_counter()
     try:
         workflow = QueryWorkflow(db=db)

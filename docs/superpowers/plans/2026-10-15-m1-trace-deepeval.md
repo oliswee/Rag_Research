@@ -45,3 +45,28 @@ Add `evaluation/qasper_dev_config.yaml` and a reproducible runner for 40 publish
 ### Task 5: Verification and delivery
 
 Run focused tests, full backend pytest, Ruff check and format check, inspect the diff and tracked files for secrets. Commit a scoped M1 change, push and open a draft PR. Review it. Do not merge without separate authorization.
+
+### Task 6: Runtime version records (2026-10-23 continuation)
+
+Replace runtime `unversioned` placeholders with deterministic SQLite corpus and
+allowlisted configuration fingerprints. Hash actual chunk/pattern content and
+citation/filter metadata in a stable row order; persist only digests. Include
+pipeline source and dependency versions in the configuration manifest. Secrets,
+emails, database paths and service URLs are excluded. Stable input must produce
+stable versions across fresh recorder instances; edits, deletions and model
+changes must change the appropriate version. Explicitly labelled public corpus
+versions remain intact in the evaluation runner.
+
+Index records must distinguish a logical version derived from corpus/config and
+collection scope from a verified physical vector revision. Do not invent a
+physical Qdrant revision or claim that a configuration digest proves index
+consistency. Preserve existing retrieval behavior and collect snapshot timing.
+Validate both query endpoints, empty libraries, version changes and safe failures.
+Run targeted tests RED/GREEN, full backend tests and Ruff before committing and
+updating the existing draft PR. Parent/Web fields stay pending their milestones.
+
+Ruling: compute the runtime corpus fingerprint from persisted SQLite rows on each
+request rather than a process-local counter. This detects edits made outside the
+app and survives restarts; it costs a linear scan on the current small library,
+whose time is recorded. A cached transactional revision can replace it under M7
+only if all mutation paths are covered.

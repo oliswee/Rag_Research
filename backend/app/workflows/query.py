@@ -166,7 +166,7 @@ class QueryWorkflow:
             )
             if trace is not None:
                 collection_name = getattr(self.vector_store, "_collection_name", None)
-                trace.record["index_version"] = (
+                trace.record_index(
                     collection_name
                     if isinstance(collection_name, str)
                     else "legacy_pattern_unversioned"

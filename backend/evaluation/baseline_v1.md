@@ -65,7 +65,27 @@ New generation runs validate question hashes, paper scope, ranked evidence and p
 
 API requests with `local_only=true` require FastEmbed and loopback Ollama/Qdrant, disable proxy/redirect handling for these clients, and only load cached embedding models. Missing model files cannot trigger a download in that request. Query rewriting shares the request Trace. Retry counts cover the instrumented retry loop; SDK internal retries are disabled. A missing usage value keeps the aggregate unknown (`null`).
 
-Remaining R0 work includes durable runtime corpus/config versions, parent and prompt spans (M2–M4), and actual Web events (M5). Web Trace currently reports `not_implemented`; no Web fallback is claimed. Full 40-question generated-answer quality and local Judge calibration remain unmeasured.
+Runtime Trace schema 2 adds deterministic corpus/config versions. The corpus
+digest streams persisted paper, chunk and pattern content plus citation/filter
+metadata; edits are detected even if a stored chunk checksum was not updated.
+The config manifest records model IDs, normalized pipeline source revision,
+dependency versions and retry/timeout settings. Endpoints are hashed; credentials,
+emails, local paths and source text are excluded from the manifest. Snapshot time
+is recorded as `corpus_snapshot`; the current implementation scans the small
+library per request, with no large-library performance claim. Avoid concurrent
+corpus writes while collecting a reproducible run.
+
+`index_version` identifies a logical manifest of corpus/config/collection scope;
+`index_locator` and `attempted_index_locators` retain used/attempted locations,
+including BM25 fallback. `physical_index_revision` and model weight revisions
+remain `null`: a logical manifest cannot certify the actual Qdrant point contents
+or immutable weights behind a model tag. This also means the newly instrumented
+runtime overhead is not part of the historical retrieval-only latency table.
+
+Remaining R0 work includes parent and prompt spans (M2–M4), verified physical
+index revisions, and actual Web events (M5). Web Trace currently reports
+`not_implemented`; no Web fallback is claimed. Full 40-question generated-answer
+quality and local Judge calibration remain unmeasured.
 
 ## Budget record format
 

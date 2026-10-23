@@ -17,8 +17,14 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:4b-instruct}
+      - OLLAMA_BASE_URL=http://ollama:11434/v1/
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-fastembed}
+      - FASTEMBED_MODEL=${FASTEMBED_MODEL:-BAAI/bge-small-en-v1.5}
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - NCBI_API_KEY=${NCBI_API_KEY:-}
       - NCBI_EMAIL=${NCBI_EMAIL:-}
@@ -33,6 +39,7 @@ services:
       - backend-data:/app/data
     depends_on:
       - qdrant
+      - ollama
     restart: unless-stopped
 
   qdrant:
@@ -46,6 +53,13 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
 volumes:
   backend-data:
   qdrant-data:
+  ollama-models:

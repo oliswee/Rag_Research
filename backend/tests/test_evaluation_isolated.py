@@ -1,6 +1,34 @@
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from evaluation.isolated_corpus import evaluate_bm25, validate_corpus
+from evaluation.isolated_corpus import (
+    evaluate_bm25,
+    prepare_vector_index,
+    validate_corpus,
+)
+
+
+@pytest.mark.asyncio
+async def test_benchmark_preflights_all_ids_before_any_write(monkeypatch):
+    chunks = [{"id": str(i), "checksum": str(i)} for i in range(201)]
+    index = MagicMock()
+    index.client.retrieve.side_effect = [
+        [],
+        [SimpleNamespace(payload={"dataset_id": "library"})],
+    ]
+    monkeypatch.setattr(
+        "evaluation.isolated_corpus.SourceVectorIndex", lambda **_: index
+    )
+    embedder = SimpleNamespace(model="local", generate_text_batch=AsyncMock())
+    with pytest.raises(ValueError, match="collides"):
+        await prepare_vector_index(chunks, "test", embedder)
+    assert index.client.retrieve.call_count == 2
+    embedder.generate_text_batch.assert_not_called()
+    index.upsert_many.assert_not_called()
+    index.client.close.assert_called_once()
 
 
 def sample_corpus():
@@ -79,6 +107,47 @@ async def test_bm25_uses_isolated_app_retrieval_and_separates_no_answer():
     assert all(case["actual_mode"] == "bm25" for case in report["results"])
     assert report["labels_declared_reviewed"] is False
     assert report["quality_gate_met"] is False
+
+
+@pytest.mark.asyncio
+async def test_isolated_benchmark_writes_versioned_retrieval_trace(tmp_path):
+    papers, chunks, labels = sample_corpus()
+    output = tmp_path / "retrieval_trace.jsonl"
+    await evaluate_bm25(
+        papers,
+        chunks,
+        labels,
+        trace_output=output,
+        corpus_version="fixture-v1",
+        corpus_public=True,
+    )
+    traces = [
+        json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(traces) == 2
+    assert traces[0]["corpus_version"] == "fixture-v1"
+    assert traces[0]["rankings"]["bm25"][0]["child_id"] == "chunk-a"
+    assert traces[0]["rankings"]["selected"][0]["child_id"] == "chunk-a"
+    assert "rrf" not in traces[0]["rankings"]
+    assert traces[0]["prompt_evidence_ids"] == []
+    assert traces[0]["support_status"] == "retrieval_only"
+    assert "Aptamers are short" not in output.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_isolated_benchmark_records_retrieval_failure(tmp_path, monkeypatch):
+    async def broken_retrieve(*_args, **_kwargs):
+        raise TimeoutError("private failure detail")
+
+    monkeypatch.setattr("evaluation.isolated_corpus.retrieve", broken_retrieve)
+    papers, chunks, labels = sample_corpus()
+    output = tmp_path / "trace.jsonl"
+    with pytest.raises(TimeoutError):
+        await evaluate_bm25(papers, chunks, labels, trace_output=output)
+    saved = json.loads(output.read_text().strip())
+    assert saved["support_status"] == "error"
+    assert saved["failures"] == [{"stage": "retrieve", "error_type": "TimeoutError"}]
+    assert "private failure detail" not in str(saved)
 
 
 @pytest.mark.asyncio

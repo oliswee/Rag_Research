@@ -3,6 +3,7 @@
 import hashlib
 import re
 import uuid
+from pathlib import Path
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -20,8 +21,19 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.embedding_service import (
+    configured_embedding_dimensions,
+    embedding_collection,
+)
+from app.services.local_execution import local_only_request
 
-CHUNK_COLLECTION = "source_chunks"
+CHUNK_COLLECTION = embedding_collection("source_chunks")
+
+
+def dataset_id() -> str:
+    """Scope vectors to the configured SQLite library on this machine."""
+    identity = f"{Path.cwd().resolve()}|{settings.database_url}"
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
 def build_chunks(
@@ -118,7 +130,8 @@ async def keyword_search(
     year_from: int | None = None,
     year_to: int | None = None,
     provider: str | None = None,
-) -> list[str]:
+    with_scores: bool = False,
+) -> list[str] | list[tuple[str, float]]:
     await ensure_fts(db)
     tokens = re.findall(r"\w+", query, re.UNICODE)[:16]
     if not tokens:
@@ -149,7 +162,7 @@ async def keyword_search(
         clause += ")"
     result = await db.execute(
         text(
-            "SELECT c.id FROM paper_chunks_fts f "
+            "SELECT c.id, bm25(paper_chunks_fts) AS score FROM paper_chunks_fts f "
             "JOIN paper_chunks c ON c.rowid=f.rowid "
             "WHERE paper_chunks_fts MATCH :query"
             + clause
@@ -157,6 +170,8 @@ async def keyword_search(
         ),
         params,
     )
+    if with_scores:
+        return [(chunk_id, float(score)) for chunk_id, score in result.all()]
     return list(result.scalars())
 
 
@@ -169,15 +184,32 @@ def rrf_merge(rankings: list[list[str]], k: int = 60, limit: int = 10) -> list[s
 
 
 class SourceVectorIndex:
-    def __init__(self):
-        self.client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    def __init__(self, *, dataset_id_override: str | None = None):
+        self.client = QdrantClient(
+            host=settings.qdrant_host,
+            port=settings.qdrant_port,
+            **(
+                {"trust_env": False, "follow_redirects": False}
+                if local_only_request.get()
+                else {}
+            ),
+        )
+        self.dimensions = configured_embedding_dimensions()
+        self.dataset_id = dataset_id_override or dataset_id()
 
     def ensure_collection(self) -> None:
         if not self.client.collection_exists(CHUNK_COLLECTION):
             self.client.create_collection(
                 CHUNK_COLLECTION,
-                vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+                vectors_config=VectorParams(
+                    size=self.dimensions, distance=Distance.COSINE
+                ),
             )
+        elif (
+            self.client.get_collection(CHUNK_COLLECTION).config.params.vectors.size
+            != self.dimensions
+        ):
+            raise ValueError("Existing source vector collection has wrong dimensions")
 
     def upsert(
         self,
@@ -194,7 +226,12 @@ class SourceVectorIndex:
                 PointStruct(
                     id=chunk_id,
                     vector=vector,
-                    payload={"paper_id": paper_id, "year": year, "provider": provider},
+                    payload={
+                        "paper_id": paper_id,
+                        "year": year,
+                        "provider": provider,
+                        "dataset_id": self.dataset_id,
+                    },
                 )
             ],
         )
@@ -211,7 +248,12 @@ class SourceVectorIndex:
                 PointStruct(
                     id=chunk_id,
                     vector=vector,
-                    payload={"paper_id": paper_id, "year": year, "provider": provider},
+                    payload={
+                        "paper_id": paper_id,
+                        "year": year,
+                        "provider": provider,
+                        "dataset_id": self.dataset_id,
+                    },
                 )
                 for chunk_id, paper_id, vector, year, provider in chunks
             ],
@@ -225,9 +267,12 @@ class SourceVectorIndex:
         year_from: int | None = None,
         year_to: int | None = None,
         provider: str | None = None,
-    ) -> list[str]:
+        with_scores: bool = False,
+    ) -> list[str] | list[tuple[str, float]]:
         self.ensure_collection()
-        conditions = []
+        conditions = [
+            FieldCondition(key="dataset_id", match=MatchValue(value=self.dataset_id))
+        ]
         if paper_ids is not None:
             conditions.append(
                 FieldCondition(key="paper_id", match=MatchAny(any=paper_ids))
@@ -241,12 +286,12 @@ class SourceVectorIndex:
                 FieldCondition(key="provider", match=MatchValue(value=provider))
             )
         query_filter = Filter(must=conditions) if conditions else None
-        return [
-            str(hit.id)
-            for hit in self.client.query_points(
-                CHUNK_COLLECTION, query=vector, query_filter=query_filter, limit=limit
-            ).points
-        ]
+        points = self.client.query_points(
+            CHUNK_COLLECTION, query=vector, query_filter=query_filter, limit=limit
+        ).points
+        if with_scores:
+            return [(str(hit.id), float(hit.score)) for hit in points]
+        return [str(hit.id) for hit in points]
 
     def delete(self, chunk_ids: list[str]) -> None:
         if chunk_ids and self.client.collection_exists(CHUNK_COLLECTION):

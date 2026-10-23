@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models import (
     Paper,
     PaperChunk,
@@ -247,7 +246,9 @@ class IngestionWorkflow:
                 error=f"Database commit failed: {e}",
             )
 
-        if chunks and settings.openai_api_key:
+        from app.services.embedding_service import embeddings_available
+
+        if chunks and embeddings_available():
             try:
                 from app.services.embedding_service import EmbeddingService
 

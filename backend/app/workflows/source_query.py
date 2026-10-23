@@ -2,14 +2,21 @@
 
 import json
 import logging
+import time
 from datetime import date
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models import Paper, PaperChunk
-from app.services.source_index import SourceVectorIndex, keyword_search, rrf_merge
+from app.services.retrieval_trace import RetrievalTrace
+from app.services.source_index import (
+    CHUNK_COLLECTION,
+    SourceVectorIndex,
+    dataset_id,
+    keyword_search,
+    rrf_merge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +34,15 @@ async def retrieve(
     year_from: int | None = None,
     year_to: int | None = None,
     provider: str | None = None,
+    trace: RetrievalTrace | None = None,
+    vector_index: SourceVectorIndex | None = None,
 ) -> tuple[list[dict], str]:
+    if trace is not None:
+        vector_scope = vector_index.dataset_id if vector_index else dataset_id()
+        trace.record_index(
+            "sqlite_fts5" if mode == "bm25" else f"{CHUNK_COLLECTION}:{vector_scope}"
+        )
+    lexical_start = time.perf_counter()
     lexical = (
         await keyword_search(
             db,
@@ -37,28 +52,48 @@ async def retrieve(
             year_from=year_from,
             year_to=year_to,
             provider=provider,
+            with_scores=trace is not None,
         )
         if mode in {"hybrid", "bm25"}
         else []
     )
+    if trace is not None and mode in {"hybrid", "bm25"}:
+        trace.add_ranked(
+            "bm25",
+            lexical,
+            duration_ms=(time.perf_counter() - lexical_start) * 1000,
+        )
+        lexical = [chunk_id for chunk_id, _ in lexical]
     dense = []
     actual_mode = mode
     if mode in {"hybrid", "dense"}:
+        dense_start = time.perf_counter()
         try:
             from app.services.embedding_service import EmbeddingService
 
             vector = (await EmbeddingService().generate_embedding(query)).embedding
-            dense = SourceVectorIndex().search(
+            dense = (vector_index or SourceVectorIndex()).search(
                 vector,
                 paper_ids,
                 limit=30,
                 year_from=year_from,
                 year_to=year_to,
                 provider=provider,
+                with_scores=trace is not None,
             )
+            if trace is not None:
+                trace.add_ranked(
+                    "dense",
+                    dense,
+                    duration_ms=(time.perf_counter() - dense_start) * 1000,
+                )
+                dense = [chunk_id for chunk_id, _ in dense]
         except Exception as exc:
             logger.warning("Dense source retrieval unavailable: %s", type(exc).__name__)
+            if trace is not None:
+                trace.record_failure("dense", exc)
             if mode == "dense":
+                fallback_start = time.perf_counter()
                 lexical = await keyword_search(
                     db,
                     query,
@@ -67,9 +102,18 @@ async def retrieve(
                     year_from=year_from,
                     year_to=year_to,
                     provider=provider,
+                    with_scores=trace is not None,
                 )
+                if trace is not None:
+                    trace.add_ranked(
+                        "bm25",
+                        lexical,
+                        duration_ms=(time.perf_counter() - fallback_start) * 1000,
+                    )
+                    lexical = [chunk_id for chunk_id, _ in lexical]
             actual_mode = "bm25_fallback"
     if mode == "dense" and not dense and not lexical:
+        fallback_start = time.perf_counter()
         lexical = await keyword_search(
             db,
             query,
@@ -78,15 +122,41 @@ async def retrieve(
             year_from=year_from,
             year_to=year_to,
             provider=provider,
+            with_scores=trace is not None,
         )
+        if trace is not None:
+            trace.add_ranked(
+                "bm25",
+                lexical,
+                duration_ms=(time.perf_counter() - fallback_start) * 1000,
+            )
+            lexical = [chunk_id for chunk_id, _ in lexical]
         actual_mode = "bm25_fallback"
+    merge_start = time.perf_counter()
     ids = (
         rrf_merge([dense, lexical], limit=limit)
         if dense and lexical
         else (dense or lexical)[:limit]
     )
+    if trace is not None:
+        if actual_mode == "bm25_fallback":
+            trace.record_index("sqlite_fts5")
+        scores: dict[str, float] = {}
+        for ranking in (dense, lexical):
+            for rank, chunk_id in enumerate(dict.fromkeys(ranking), start=1):
+                scores[chunk_id] = scores.get(chunk_id, 0) + 1 / (60 + rank)
+        trace.add_ranked(
+            "rrf" if dense and lexical else "selected",
+            [
+                (chunk_id, scores[chunk_id] if dense and lexical else None)
+                for chunk_id in ids
+            ],
+            duration_ms=(time.perf_counter() - merge_start) * 1000,
+        )
+        trace.set_mode(actual_mode)
     if not ids:
         return [], actual_mode
+    resolve_start = time.perf_counter()
     statement = (
         select(PaperChunk, Paper)
         .join(Paper, Paper.id == PaperChunk.paper_id)
@@ -112,16 +182,23 @@ async def retrieve(
         }
         for chunk, paper in rows
     }
-    return [
+    resolved = [
         by_id[chunk_id]
         for chunk_id in ids
         if chunk_id in by_id
         and (paper_ids is None or by_id[chunk_id]["paper_id"] in paper_ids)
-    ], actual_mode
+    ]
+    if trace is not None:
+        trace.add_ranked(
+            "sqlite_resolved",
+            [(source["chunk_id"], None) for source in resolved],
+            duration_ms=(time.perf_counter() - resolve_start) * 1000,
+        )
+    return resolved, actual_mode
 
 
 async def answer_from_evidence(
-    query: str, evidence: list[dict]
+    query: str, evidence: list[dict], trace: RetrievalTrace | None = None
 ) -> tuple[str, list[dict]]:
     if not evidence:
         return (
@@ -129,10 +206,12 @@ async def answer_from_evidence(
             "Discover or import relevant papers first.",
             [],
         )
-    if not settings.anthropic_api_key:
+    from app.services.llm_client import llm_available
+
+    if not llm_available():
         return (
-            "Relevant source excerpts are shown below. Configure "
-            "ANTHROPIC_API_KEY for a synthesized answer.",
+            "Relevant source excerpts are shown below. Configure the selected "
+            "LLM provider for a synthesized answer.",
             evidence,
         )
     from app.services.llm_client import LLMClient
@@ -143,6 +222,8 @@ async def answer_from_evidence(
         for source in evidence
     )
     client = LLMClient()
+    if trace is not None:
+        client.trace = trace
     result = await client.complete_json(
         system_prompt=(
             'Answer only from provided excerpts. Return JSON: {"claims":'
@@ -241,11 +322,13 @@ async def compare_evidence(
     dimension: str, question: str | None, by_paper: dict[str, list[dict]]
 ) -> list[dict]:
     """Generate cross-paper cells while validating IDs against each paper."""
-    if not settings.anthropic_api_key:
+    from app.services.llm_client import llm_available
+
+    if not llm_available():
         return [
             {
                 "paper_id": paper_id,
-                "text": "Source excerpts are shown. Configure ANTHROPIC_API_KEY "
+                "text": "Source excerpts are shown. Configure the selected LLM "
                 "to synthesize differences."
                 if evidence
                 else "Insufficient evidence found",

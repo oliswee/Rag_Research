@@ -7,6 +7,7 @@ import pytest
 
 from app.models import Paper, PaperType, Pattern, PatternStatus
 from app.schemas.session import ConversationSession
+from app.services.retrieval_trace import RetrievalTrace
 from app.workflows.query import QueryInput, QueryResult, QueryWorkflow
 
 
@@ -55,6 +56,7 @@ class TestQueryWorkflow:
         store.search.return_value = [
             {"id": "pattern-123", "score": 0.95, "payload": {}}
         ]
+        store._collection_name = "patterns_test"
         return store
 
     @pytest.fixture
@@ -132,6 +134,27 @@ class TestQueryWorkflow:
 
         mock_session_manager.create_session.assert_called_once()
         assert result.session_id == "session-123"
+
+    @pytest.mark.asyncio
+    async def test_legacy_workflow_trace_preserves_ranks_and_prompt_ids(
+        self,
+        workflow: QueryWorkflow,
+        mock_pattern: MagicMock,
+        mock_paper: MagicMock,
+    ) -> None:
+        workflow._get_patterns_with_papers = AsyncMock(
+            return_value=[(mock_pattern, mock_paper)]
+        )
+        trace = RetrievalTrace("test query", {}, corpus_version="test")
+
+        await workflow.run(QueryInput(query="test query", trace=trace))
+
+        record = trace.as_dict()
+        assert record["rankings"]["legacy_pattern_dense"] == [
+            {"child_id": "pattern-123", "rank": 1, "score": 0.95}
+        ]
+        assert record["prompt_evidence_ids"] == ["pattern-123"]
+        assert record["retrieval_mode"] == "legacy_pattern"
 
     @pytest.mark.asyncio
     async def test_existing_session_uses_session(

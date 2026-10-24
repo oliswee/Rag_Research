@@ -1,57 +1,49 @@
-"""Rebuild the source Qdrant collection from authoritative SQLite chunks.
+"""Serially repair all paper generations without deleting history or collections.
 
-Run with local FastEmbed by default: uv run python -m evaluation.reindex
+Run: uv run python -m evaluation.reindex
+For one paper or offline source repair, use evaluation.reindex_paper instead.
 """
 
 import asyncio
+import json
 
-from sqlalchemy import select
+from sqlalchemy import exists, func, or_, select
 
 from app.db import async_session_maker, engine
 from app.models import Paper, PaperChunk
-from app.services.embedding_service import EmbeddingService
-from app.services.source_index import SourceVectorIndex
+from evaluation.reindex_paper import reindex_paper
 
 
 async def main() -> None:
+    failed = False
     try:
         async with async_session_maker() as db:
-            rows = (
-                await db.execute(
-                    select(PaperChunk, Paper).join(
-                        Paper, Paper.id == PaperChunk.paper_id
-                    )
-                )
-            ).all()
-        embeddings = EmbeddingService()
-        index = SourceVectorIndex()
-        try:
-            # Upsert into the model-specific collection. Never delete existing vectors.
-            index.ensure_collection()
-            count = 0
-            for offset in range(0, len(rows), 20):
-                batch = rows[offset : offset + 20]
-                vectors = await embeddings.generate_text_batch(
-                    [chunk.text for chunk, _ in batch]
-                )
-                index.upsert_many(
-                    [
-                        (
-                            chunk.id,
-                            paper.id,
-                            vector,
-                            paper.published_date.year if paper.published_date else None,
-                            paper.import_source,
+            identifiers = list(
+                (
+                    await db.scalars(
+                        select(Paper.id)
+                        .where(
+                            or_(
+                                func.length(func.trim(Paper.content_text)) > 0,
+                                exists(
+                                    select(PaperChunk.id).where(
+                                        PaperChunk.paper_id == Paper.id
+                                    )
+                                ),
+                            )
                         )
-                        for (chunk, paper), vector in zip(batch, vectors, strict=True)
-                    ]
-                )
-                count += len(batch)
-                print(f"Indexed {count}/{len(rows)} excerpts")
-        finally:
-            index.client.close()
+                        .order_by(Paper.id)
+                    )
+                ).all()
+            )
+            for identifier in identifiers:
+                result = await reindex_paper(db, identifier)
+                print(json.dumps(result))
+                failed |= bool(result["error_type"])
     finally:
         await engine.dispose()
+    if failed:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

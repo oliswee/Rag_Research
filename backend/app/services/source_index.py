@@ -10,8 +10,10 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    IsEmptyCondition,
     MatchAny,
     MatchValue,
+    PayloadField,
     PointIdsList,
     PointStruct,
     Range,
@@ -21,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db.source_fts_v2 import CREATE_STATEMENTS, active_chunk_sql
 from app.services.embedding_service import (
     configured_embedding_dimensions,
     embedding_collection,
@@ -82,39 +85,15 @@ async def ensure_fts(db: AsyncSession) -> None:
     existed = (
         await db.execute(
             text(
-                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "SELECT sql FROM sqlite_master WHERE type='table' "
                 "AND name='paper_chunks_fts'"
             )
         )
     ).scalar_one_or_none()
-    await db.execute(
-        text(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS paper_chunks_fts "
-            "USING fts5(text, content='paper_chunks', content_rowid='rowid')"
-        )
-    )
-    await db.execute(
-        text(
-            "CREATE TRIGGER IF NOT EXISTS paper_chunks_ai AFTER INSERT ON paper_chunks "
-            "BEGIN INSERT INTO paper_chunks_fts(rowid,text) "
-            "VALUES (new.rowid,new.text); END"
-        )
-    )
-    await db.execute(
-        text(
-            "CREATE TRIGGER IF NOT EXISTS paper_chunks_ad AFTER DELETE ON paper_chunks "
-            "BEGIN INSERT INTO paper_chunks_fts(paper_chunks_fts,rowid,text) "
-            "VALUES ('delete',old.rowid,old.text); END"
-        )
-    )
-    await db.execute(
-        text(
-            "CREATE TRIGGER IF NOT EXISTS paper_chunks_au AFTER UPDATE ON paper_chunks "
-            "BEGIN INSERT INTO paper_chunks_fts(paper_chunks_fts,rowid,text) "
-            "VALUES ('delete',old.rowid,old.text); "
-            "INSERT INTO paper_chunks_fts(rowid,text) VALUES (new.rowid,new.text); END"
-        )
-    )
+    if existed and "source_search_content" not in existed:
+        raise RuntimeError("Source FTS migration required; run alembic upgrade head")
+    for statement in CREATE_STATEMENTS:
+        await db.execute(text(statement))
     if not existed:
         # Rebuild covers rows inserted before FTS was initialized (legacy/test DBs).
         await db.execute(
@@ -138,7 +117,7 @@ async def keyword_search(
         return []
     expression = " OR ".join('"' + token.replace('"', "") + '"' for token in tokens)
     params: dict = {"query": expression, "limit": limit}
-    clause = ""
+    clause = " AND " + active_chunk_sql()
     if paper_ids is not None:
         if not paper_ids:
             return []
@@ -147,7 +126,7 @@ async def keyword_search(
             key = f"paper_{index}"
             params[key] = paper_id
             markers.append(f":{key}")
-        clause = f" AND c.paper_id IN ({','.join(markers)})"
+        clause += f" AND c.paper_id IN ({','.join(markers)})"
     if year_from is not None or year_to is not None or provider:
         clause += " AND EXISTS (SELECT 1 FROM papers p WHERE p.id=c.paper_id"
         if year_from is not None:
@@ -237,7 +216,10 @@ class SourceVectorIndex:
         )
 
     def upsert_many(
-        self, chunks: list[tuple[str, str, list[float], int | None, str | None]]
+        self,
+        chunks: list[tuple[str, str, list[float], int | None, str | None]],
+        *,
+        provenance: dict[str, dict] | None = None,
     ) -> None:
         if not chunks:
             return
@@ -249,6 +231,7 @@ class SourceVectorIndex:
                     id=chunk_id,
                     vector=vector,
                     payload={
+                        **(provenance or {}).get(chunk_id, {}),
                         "paper_id": paper_id,
                         "year": year,
                         "provider": provider,
@@ -268,6 +251,7 @@ class SourceVectorIndex:
         year_to: int | None = None,
         provider: str | None = None,
         with_scores: bool = False,
+        active_versions: dict[str, str | None] | None = None,
     ) -> list[str] | list[tuple[str, float]]:
         self.ensure_collection()
         conditions = [
@@ -285,6 +269,25 @@ class SourceVectorIndex:
             conditions.append(
                 FieldCondition(key="provider", match=MatchValue(value=provider))
             )
+        if active_versions is not None:
+            versions = [version for version in active_versions.values() if version]
+            allowed = [
+                Filter(
+                    must=[IsEmptyCondition(is_empty=PayloadField(key="index_version"))],
+                    must_not=[
+                        FieldCondition(
+                            key="paper_id", match=MatchAny(any=list(active_versions))
+                        )
+                    ]
+                    if active_versions
+                    else None,
+                )
+            ]
+            if versions:
+                allowed.append(
+                    FieldCondition(key="index_version", match=MatchAny(any=versions))
+                )
+            conditions.append(Filter(should=allowed))
         query_filter = Filter(must=conditions) if conditions else None
         points = self.client.query_points(
             CHUNK_COLLECTION, query=vector, query_filter=query_filter, limit=limit

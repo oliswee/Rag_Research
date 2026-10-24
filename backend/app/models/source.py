@@ -6,8 +6,11 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -59,6 +62,16 @@ class PaperChunk(Base):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    cleaned_text: Mapped[str | None] = mapped_column(Text)
+    search_text: Mapped[str] = mapped_column(
+        Text, Computed("coalesce(cleaned_text, text)")
+    )
+    index_version: Mapped[str] = mapped_column(
+        String(80), default="legacy", server_default="legacy", nullable=False
+    )
+    document_id: Mapped[str | None] = mapped_column(String(36))
+    parent_id: Mapped[str | None] = mapped_column(String(36))
+    source_spans: Mapped[list[dict] | None] = mapped_column(JSON)
     content_scope: Mapped[str] = mapped_column(String(20), nullable=False)
     section: Mapped[str | None] = mapped_column(String(255), nullable=True)
     page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -75,7 +88,38 @@ class PaperChunk(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("paper_id", "chunk_index", name="uq_paper_chunk_index"),
+        UniqueConstraint(
+            "paper_id",
+            "index_version",
+            "chunk_index",
+            name="uq_paper_chunk_version_index",
+        ),
+        ForeignKeyConstraint(
+            ["index_version", "paper_id", "document_id"],
+            [
+                "source_index_generations.index_version",
+                "source_index_generations.paper_id",
+                "source_index_generations.document_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_chunk_generation_source",
+        ),
+        ForeignKeyConstraint(
+            ["parent_id", "index_version", "document_id"],
+            [
+                "source_parents.id",
+                "source_parents.generation_id",
+                "source_parents.document_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_chunk_parent_source",
+        ),
+        CheckConstraint(
+            "(document_id IS NULL AND parent_id IS NULL AND index_version = 'legacy') "
+            "OR (document_id IS NOT NULL AND parent_id IS NOT NULL "
+            "AND index_version <> 'legacy')",
+            name="ck_chunk_provenance",
+        ),
         Index("idx_paper_chunks_paper_id", "paper_id"),
     )
 

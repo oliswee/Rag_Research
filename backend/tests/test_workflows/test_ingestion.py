@@ -85,8 +85,17 @@ class TestIngestionWorkflow:
         mock_pdf_parser: MagicMock,
         mock_metadata_extractor: AsyncMock,
         mock_pattern_extractor: AsyncMock,
+        monkeypatch,
     ) -> IngestionWorkflow:
         """Create workflow with mocked dependencies."""
+        from types import SimpleNamespace
+
+        # These orchestration tests use a mock session; real source transactions
+        # and vector-failure persistence are covered in test_structured_ingestion.
+        monkeypatch.setattr(
+            "app.workflows.ingestion.stage_generation",
+            AsyncMock(return_value=SimpleNamespace(children=[])),
+        )
         return IngestionWorkflow(
             db=mock_db,
             pdf_parser=mock_pdf_parser,
@@ -111,7 +120,7 @@ class TestIngestionWorkflow:
         assert result.error is None
         # Verify database operations
         assert mock_db.add.call_count >= 3  # 1 paper + 2 patterns
-        mock_db.commit.assert_called_once()
+        assert mock_db.commit.await_count == 2
 
     @pytest.mark.asyncio
     async def test_returns_paper_id(
@@ -191,7 +200,7 @@ class TestIngestionWorkflow:
         assert result.success is True
         assert result.pattern_count == 0
         assert any("Pattern extraction failed" in w for w in result.warnings)
-        mock_db.commit.assert_called_once()
+        assert mock_db.commit.await_count == 2
 
     @pytest.mark.asyncio
     async def test_empty_patterns_is_valid(

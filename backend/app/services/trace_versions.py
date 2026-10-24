@@ -73,6 +73,16 @@ def configuration_snapshot() -> tuple[str, dict]:
         "qdrant_endpoint_sha256": digest([settings.qdrant_host, settings.qdrant_port]),
         "llm_max_attempts": settings.extraction_max_retries,
         "llm_timeout_seconds": settings.extraction_timeout_seconds,
+        "retrieval": {
+            "query_limit": settings.query_variant_limit,
+            "rewrite_timeout_seconds": settings.query_rewrite_timeout_seconds,
+            "branch_timeout_seconds": settings.retrieval_branch_timeout_seconds,
+            "concurrency": settings.retrieval_concurrency,
+            "per_query_k": settings.retrieval_per_query_k,
+            "rrf_k": settings.retrieval_rrf_k,
+            "final_k": 10,
+            "fusion": "single_layer_rrf",
+        },
     }
     return "sha256:" + digest(manifest), manifest
 

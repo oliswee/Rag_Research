@@ -138,6 +138,25 @@ class RetrievalTrace:
     def set_mode(self, mode: str) -> None:
         self.record["retrieval_mode"] = mode
 
+    def record_query_plan(self, plan) -> None:
+        self.record["query_variants"] = [
+            {
+                "query_id": query.query_id,
+                "type": query.query_type,
+                "query": _safe_query(query.text)
+                if self.record["corpus_public"]
+                else "[private-query]",
+                "query_sha256": _query_digest(query.text),
+                "parent_question_sha256": _query_digest(query.parent_question),
+            }
+            for query in plan.queries
+        ]
+        self.record["query_expansion"] = {
+            "status": plan.status,
+            "reason": plan.reason,
+            "rejected_count": plan.rejected_count,
+        }
+
     def record_index(self, locator: str) -> None:
         """Name the logical index; do not imply a physical consistency check."""
         self.record["index_locator"] = locator

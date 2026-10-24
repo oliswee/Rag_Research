@@ -5,11 +5,14 @@ import logging
 import time
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Paper, PaperChunk
+from app.db.source_fts_v2 import active_chunk_sql
+from app.models import Paper, PaperChunk, SourceIndexGeneration
 from app.services.retrieval_trace import RetrievalTrace
+from app.services.source_anchors import resolve_child
 from app.services.source_index import (
     CHUNK_COLLECTION,
     SourceVectorIndex,
@@ -22,7 +25,15 @@ logger = logging.getLogger(__name__)
 
 
 async def has_source_chunks(db: AsyncSession) -> bool:
-    return bool((await db.execute(select(func.count(PaperChunk.id)))).scalar())
+    return bool(
+        (
+            await db.execute(
+                select(func.count(PaperChunk.id)).where(
+                    sql_text(active_chunk_sql("paper_chunks"))
+                )
+            )
+        ).scalar()
+    )
 
 
 async def retrieve(
@@ -37,6 +48,21 @@ async def retrieve(
     trace: RetrievalTrace | None = None,
     vector_index: SourceVectorIndex | None = None,
 ) -> tuple[list[dict], str]:
+    generations = list(
+        (
+            await db.scalars(
+                select(SourceIndexGeneration).where(
+                    SourceIndexGeneration.is_active.is_(True)
+                )
+            )
+        ).all()
+    )
+    active_versions = {
+        generation.paper_id: generation.index_version
+        if generation.vector_status == "ready"
+        else None
+        for generation in generations
+    }
     if trace is not None:
         vector_scope = vector_index.dataset_id if vector_index else dataset_id()
         trace.record_index(
@@ -68,11 +94,14 @@ async def retrieve(
     actual_mode = mode
     if mode in {"hybrid", "dense"}:
         dense_start = time.perf_counter()
+        owned_index = None
         try:
             from app.services.embedding_service import EmbeddingService
 
             vector = (await EmbeddingService().generate_embedding(query)).embedding
-            dense = (vector_index or SourceVectorIndex()).search(
+            if vector_index is None:
+                owned_index = SourceVectorIndex()
+            dense = (vector_index or owned_index).search(
                 vector,
                 paper_ids,
                 limit=30,
@@ -80,6 +109,7 @@ async def retrieve(
                 year_to=year_to,
                 provider=provider,
                 with_scores=trace is not None,
+                active_versions=active_versions,
             )
             if trace is not None:
                 trace.add_ranked(
@@ -88,6 +118,40 @@ async def retrieve(
                     duration_ms=(time.perf_counter() - dense_start) * 1000,
                 )
                 dense = [chunk_id for chunk_id, _ in dense]
+            if dense:
+                # SQLite is authoritative if a stale/foreign point bypasses a filter.
+                candidates = (
+                    select(PaperChunk.id)
+                    .join(Paper, Paper.id == PaperChunk.paper_id)
+                    .where(
+                        PaperChunk.id.in_(dense),
+                        sql_text(active_chunk_sql("paper_chunks")),
+                        or_(
+                            PaperChunk.index_version == "legacy",
+                            PaperChunk.index_version.in_(
+                                [
+                                    version
+                                    for version in active_versions.values()
+                                    if version
+                                ]
+                            ),
+                        ),
+                    )
+                )
+                if paper_ids is not None:
+                    candidates = candidates.where(PaperChunk.paper_id.in_(paper_ids))
+                if year_from is not None:
+                    candidates = candidates.where(
+                        Paper.published_date >= date(year_from, 1, 1)
+                    )
+                if year_to is not None:
+                    candidates = candidates.where(
+                        Paper.published_date <= date(year_to, 12, 31)
+                    )
+                if provider:
+                    candidates = candidates.where(Paper.import_source == provider)
+                valid_ids = set((await db.scalars(candidates)).all())
+                dense = [identifier for identifier in dense if identifier in valid_ids]
         except Exception as exc:
             logger.warning("Dense source retrieval unavailable: %s", type(exc).__name__)
             if trace is not None:
@@ -112,6 +176,9 @@ async def retrieve(
                     )
                     lexical = [chunk_id for chunk_id, _ in lexical]
             actual_mode = "bm25_fallback"
+        finally:
+            if owned_index is not None:
+                owned_index.client.close()
     if mode == "dense" and not dense and not lexical:
         fallback_start = time.perf_counter()
         lexical = await keyword_search(
@@ -160,7 +227,7 @@ async def retrieve(
     statement = (
         select(PaperChunk, Paper)
         .join(Paper, Paper.id == PaperChunk.paper_id)
-        .where(PaperChunk.id.in_(ids))
+        .where(PaperChunk.id.in_(ids), sql_text(active_chunk_sql("paper_chunks")))
     )
     if year_from is not None:
         statement = statement.where(Paper.published_date >= date(year_from, 1, 1))
@@ -169,19 +236,16 @@ async def retrieve(
     if provider:
         statement = statement.where(Paper.import_source == provider)
     rows = (await db.execute(statement)).all()
-    by_id = {
-        chunk.id: {
-            "paper_id": paper.id,
-            "chunk_id": chunk.id,
-            "title": paper.title,
-            "source_url": chunk.source_url or paper.source,
-            "content_scope": chunk.content_scope,
-            "excerpt": chunk.text,
-            "page_start": chunk.page_start,
-            "page_end": chunk.page_end,
-        }
-        for chunk, paper in rows
-    }
+    by_id = {}
+    for chunk, paper in rows:
+        try:
+            source = await resolve_child(db, chunk)
+        except (ValueError, KeyError, TypeError) as exc:
+            if trace is not None:
+                trace.record_failure("source_integrity", exc)
+            continue
+        source.update(title=paper.title, source_url=chunk.source_url or paper.source)
+        by_id[chunk.id] = source
     resolved = [
         by_id[chunk_id]
         for chunk_id in ids
@@ -189,6 +253,7 @@ async def retrieve(
         and (paper_ids is None or by_id[chunk_id]["paper_id"] in paper_ids)
     ]
     if trace is not None:
+        trace.record_sources(resolved, generations, used_vectors=bool(dense))
         trace.add_ranked(
             "sqlite_resolved",
             [(source["chunk_id"], None) for source in resolved],
@@ -200,6 +265,9 @@ async def retrieve(
 async def answer_from_evidence(
     query: str, evidence: list[dict], trace: RetrievalTrace | None = None
 ) -> tuple[str, list[dict]]:
+    evidence = [
+        source for source in evidence if source.get("evidence_role") != "bibliography"
+    ]
     if not evidence:
         return (
             "Insufficient evidence in the local library. "
@@ -322,6 +390,14 @@ async def compare_evidence(
     dimension: str, question: str | None, by_paper: dict[str, list[dict]]
 ) -> list[dict]:
     """Generate cross-paper cells while validating IDs against each paper."""
+    by_paper = {
+        paper_id: [
+            source
+            for source in sources
+            if source.get("evidence_role") != "bibliography"
+        ]
+        for paper_id, sources in by_paper.items()
+    }
     from app.services.llm_client import llm_available
 
     if not llm_available():

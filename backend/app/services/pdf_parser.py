@@ -187,10 +187,20 @@ class PDFParserService:
 
     def parse_abstract(self, text: str) -> PDFParseResult:
         """Represent a legitimate abstract without fabricating a PDF page."""
+        return self.parse_text(text, content_scope="abstract", source_origin="abstract")
+
+    def parse_text(
+        self,
+        text: str,
+        *,
+        content_scope: str = "full_text",
+        source_origin: str = "provided_text",
+    ) -> PDFParseResult:
+        """Anchor supplied text without inventing PDF pages or geometry."""
         if not text.strip():
-            raise PDFParseError("Abstract is empty", code="empty_abstract")
+            raise PDFParseError("Text is empty", code="empty_" + content_scope)
         version = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
-        source_id = "abstract:" + version
+        source_id = source_origin + ":" + version
         blocks = []
         for match in re.finditer(r"\S.*?(?=\n\s*\n|\Z)", text, re.DOTALL):
             end = match.start() + len(match.group().rstrip())
@@ -204,8 +214,8 @@ class PDFParserService:
                     raw_start=match.start(),
                     raw_end=end,
                     bbox=None,
-                    kind="abstract",
-                    source_origin="abstract",
+                    kind="abstract" if content_scope == "abstract" else "paragraph",
+                    source_origin=source_origin,
                 )
             )
         return PDFParseResult(
@@ -214,7 +224,7 @@ class PDFParserService:
             metadata={},
             document_version=version,
             source_id=source_id,
-            content_scope="abstract",
+            content_scope=content_scope,
             pages=[
                 PDFPage(number=None, text=text, structured_text=text, blocks=blocks)
             ],

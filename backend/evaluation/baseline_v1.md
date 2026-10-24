@@ -2,6 +2,9 @@
 
 Run date: 2026-10-16 (Australia/Sydney). Issue: [#47](https://github.com/oliswee/Rag_Research/issues/47).
 
+The separate [metrics history](metrics_history.md) records measured results,
+sample sizes, engineering checks and outstanding measurements across milestones.
+
 ## Data and method
 
 The local QASPER v0.3 development subset has 40 papers, 1,892 application chunks and 40 published-label questions. Thirty-two questions have a mapped evidence paragraph; eight are unanswerable within their specified paper. The text is QASPER's S2ORC extraction, not output from FolioTrace's PDF parser. See `qasper_dev_config.yaml` for corpus checksums. The corpus files and per-question results stay under Git-ignored `backend/data/evaluation/`.

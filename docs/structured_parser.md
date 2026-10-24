@@ -1,8 +1,8 @@
 # Structured parser and conservative cleaning (M2 foundation)
 
-This implements the K3/K3b engineering foundation. Parent/child persistence,
-version-consistent FTS/Qdrant publication and citation endpoints remain K7 work;
-the existing import pipeline still builds its previous flat source chunks.
+This implements the K3/K3b engineering foundation. Upload and discovery import
+now stage versioned parent/child sources and separately publish verified vectors;
+see [parent_child_schema.md](parent_child_schema.md) for the K7 contract.
 
 The parser retains `PDFParseResult.text` and `PDFPage.text`. Each page also has a
 deterministic `structured_text` transcript and blocks with source/document IDs,
@@ -53,5 +53,8 @@ identical queue records. Entirely unreadable PDFs produce an unsupported artifac
 and a document-level review record with a null page. Input, artifact and queue
 paths must be distinct. Default outputs stay under Git-ignored local `data/`.
 
-Validation uses synthetic layouts and automatic source-span checks. Human PDF
-quality review and Gold labeling are scheduled for M8.
+Validation uses synthetic layouts and automatic source-span checks. M2 remains
+open until its required human checks exist: six representative sample types and
+at least 30 suspicious plus 20 ordinary cleaning fragments. M8 Gold labeling is
+a separate, later requirement. Automated integrity checks do not satisfy either
+human review gate.

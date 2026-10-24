@@ -1,12 +1,11 @@
 """Automatic imports keep source scope and deduplicate provider records."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import func, select
 
-from app.models import ImportItem, ImportJob, Paper, PaperChunk
+from app.models import ImportItem, ImportJob, Paper, PaperChunk, SourceDocument
 from app.services.fulltext_locations import FullTextLocation
 from app.workflows import discovery_import
 from app.workflows.discovery_import import import_one
@@ -46,6 +45,9 @@ async def test_open_pdf_import_reports_unreadable_pages(async_db_session, monkey
     assert "PDF page 2: no_extractable_text" in (item.warning or "")
     chunks = (await async_db_session.execute(select(PaperChunk))).scalars().all()
     assert chunks and {chunk.page_start for chunk in chunks} == {1}
+    assert chunks[0].parent_id is not None
+    source = (await async_db_session.scalars(select(SourceDocument))).one()
+    assert source.original_pdf == data
 
 
 class FakeDiscovery:
@@ -89,6 +91,7 @@ async def test_abstract_import_and_duplicate(async_db_session, monkeypatch):
     assert first.content_scope == "abstract"
     chunks = (await db.execute(select(PaperChunk))).scalars().all()
     assert len(chunks) == 1 and chunks[0].page_start is None
+    assert chunks[0].parent_id is not None
     duplicate = ImportItem(
         job_id=job.id, provider="openalex", provider_id="W456", candidate={}
     )
@@ -165,21 +168,17 @@ async def test_import_uses_unpaywall_pdf_with_page_evidence(
         async def close(self):
             pass
 
-    class FakeParser:
-        def __init__(self, max_pages):
-            pass
+    import fitz
 
-        def parse(self, payload):
-            assert payload == b"%PDF-valid"
-            return SimpleNamespace(
-                pages=[SimpleNamespace(text="Open paper methods.", number=1)]
-            )
+    document = fitz.open()
+    document.new_page().insert_text((50, 80), "Open paper methods.")
+    payload = document.tobytes()
+    document.close()
 
     monkeypatch.setattr(discovery_import, "FullTextResolver", FakeResolver)
     monkeypatch.setattr(
-        discovery_import, "download_pdf", AsyncMock(return_value=b"%PDF-valid")
+        discovery_import, "download_pdf", AsyncMock(return_value=payload)
     )
-    monkeypatch.setattr(discovery_import, "PDFParserService", FakeParser)
     job = ImportJob()
     async_db_session.add(job)
     await async_db_session.flush()
@@ -194,3 +193,31 @@ async def test_import_uses_unpaywall_pdf_with_page_evidence(
     assert chunk.page_start == 1
     assert chunk.source_url == "https://repo.example.org/open.pdf"
     assert "Unpaywall" in item.warning
+
+
+@pytest.mark.asyncio
+async def test_staging_error_survives_session_rollback(async_db_session, monkeypatch):
+    class NoOpenCopies:
+        async def find(self, candidate):
+            return [], []
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(discovery_import, "FullTextResolver", NoOpenCopies)
+    monkeypatch.setattr(
+        discovery_import,
+        "stage_generation",
+        AsyncMock(side_effect=ValueError("private")),
+    )
+    job = ImportJob()
+    async_db_session.add(job)
+    await async_db_session.flush()
+    item = ImportItem(
+        job_id=job.id, provider="openalex", provider_id="W1", candidate={}
+    )
+    async_db_session.add(item)
+    await async_db_session.flush()
+    await import_one(async_db_session, item, FakeDiscovery())
+    assert item.status == "failed"
+    assert item.error == "Import failed: ValueError"

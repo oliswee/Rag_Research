@@ -65,6 +65,12 @@ privacy inspection and one fresh code review before a dependent draft PR. Check
 only requirements with real evidence; K3/K3b can land incrementally while M2
 stays open until K7 acceptance is complete.
 
+User update (2026-10-24): append measured results to the separate
+`backend/evaluation/metrics_history.md` after every evaluation, including sample
+sizes, configuration/code versions, denominators, latency scope, raw artifact
+paths and unmeasured or failed items. Keep engineering regression counts separate
+from retrieval/generation quality metrics; preserve historical results.
+
 Pre-flight: parser block spans feed cleaner mappings; both feed immutable
 document/parent/child records. Index version is shared across SQLite/FTS/Qdrant;
 retrieval must filter the active version before ranking/resolution. This makes

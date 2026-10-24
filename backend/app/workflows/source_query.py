@@ -266,7 +266,9 @@ async def answer_from_evidence(
     query: str, evidence: list[dict], trace: RetrievalTrace | None = None
 ) -> tuple[str, list[dict]]:
     evidence = [
-        source for source in evidence if source.get("evidence_role") != "bibliography"
+        source
+        for source in evidence
+        if source.get("evidence_role") not in {"bibliography", "page_marker"}
     ]
     if not evidence:
         return (
@@ -394,7 +396,7 @@ async def compare_evidence(
         paper_id: [
             source
             for source in sources
-            if source.get("evidence_role") != "bibliography"
+            if source.get("evidence_role") not in {"bibliography", "page_marker"}
         ]
         for paper_id, sources in by_paper.items()
     }

@@ -75,3 +75,20 @@ Pre-flight: parser block spans feed cleaner mappings; both feed immutable
 document/parent/child records. Index version is shared across SQLite/FTS/Qdrant;
 retrieval must filter the active version before ranking/resolution. This makes
 index publication order and pending-vector fallback central review risks.
+
+## Acceptance correction and development audit (2026-10-24)
+
+Re-read the actual v6 B, K3/K3b and M2 exit conditions: M2 requires automatic
+six-type fixtures, paired cleaning examples and index consistency, not a human
+50-fragment audit. Earlier progress notes and docs incorrectly imported that
+gate. Formal human PDF quality review and independent Gold remain M8 work.
+The user asked Codex to handle development inspection without further per-sample
+prompts. Preserve that inspection as model-assisted debugging only.
+
+Frozen 30+20 samples and six representative types were inspected; supported
+defects have RED/GREEN regressions. The audit report records remaining layout
+and reference-boundary limitations. A fresh read-only review found word-gap
+corruption and numeric-table page-marker suppression; both were reproduced and
+fixed. Final full backend suite: 848 passed, 16 warnings, 81.43s; Ruff check and
+format check passed. The separate metrics history records local v2 reindex and
+retained-citation evidence. Draft PR #50 remains dependent on M1; no merge.

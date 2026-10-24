@@ -6,7 +6,8 @@ EVIDENCE_QUOTE = "Active retrieval reduced latency by 20 percent."
 
 
 @pytest.mark.asyncio
-async def test_bibliography_entries_are_not_used_as_result_evidence(monkeypatch):
+@pytest.mark.parametrize("role", ["bibliography", "page_marker"])
+async def test_bibliography_entries_are_not_used_as_result_evidence(monkeypatch, role):
     from app.config import settings
 
     monkeypatch.setattr(settings, "anthropic_api_key", "")
@@ -19,7 +20,7 @@ async def test_bibliography_entries_are_not_used_as_result_evidence(monkeypatch)
                 "content_scope": "full_text",
                 "excerpt": "Smith et al. Retrieval improves results. 2024.",
                 "page_start": 5,
-                "evidence_role": "bibliography",
+                "evidence_role": role,
             }
         ],
     )

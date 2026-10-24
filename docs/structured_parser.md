@@ -33,6 +33,16 @@ agreement across three pages; it is not removed. Reference sections are marked
 and retained. These choices favor preserving evidence until M8 review.
 Numbered reference headings such as `7 References` are supported.
 
+The development audit led to `structured-v2` / `conservative-v2`: near-touching
+font/color runs are reassembled before column detection, positive word gaps are
+preserved, narrow genuine column gutters are recognized, bibliography years do
+not become numbered headings, and the last heading carries onto the next page
+without being overwritten by another column's ambiguous continuation. Same-page
+column-local section assignments remain conservative. An isolated centered
+bottom-margin integer matching the physical page number is flagged as a page
+marker; recognized tables are exempt. Offset printed page numbers may be missed.
+Raw evidence is retained for all flags, including page markers.
+
 Every transformation records original page-transcript offsets and final cleaned
 offsets. `CleanedBlock.raw_span(start, end)` returns a covering raw range for a
 nonempty cleaned range, including characters removed within that range. Citation
@@ -53,8 +63,10 @@ identical queue records. Entirely unreadable PDFs produce an unsupported artifac
 and a document-level review record with a null page. Input, artifact and queue
 paths must be distinct. Default outputs stay under Git-ignored local `data/`.
 
-Validation uses synthetic layouts and automatic source-span checks. M2 remains
-open until its required human checks exist: six representative sample types and
-at least 30 suspicious plus 20 ordinary cleaning fragments. M8 Gold labeling is
-a separate, later requirement. Automated integrity checks do not satisfy either
-human review gate.
+M2 acceptance uses synthetic/known-structure fixtures and automatic source-span
+and index checks, as required by the v6 checklist. The previous documentation
+incorrectly required a six-type / 30+20 human audit in M2; formal human PDF audit
+belongs to M8. The user delegated development sample inspection to Codex on
+2026-10-24. Its observations are debugging evidence, not independent human Gold
+or a measured real-PDF accuracy. See the development report in
+[m2_parser_cleaner_audit.md](../backend/evaluation/m2_parser_cleaner_audit.md).

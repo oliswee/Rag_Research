@@ -133,11 +133,18 @@ async def resolve_child(db: AsyncSession, child: PaperChunk) -> dict:
             for flag in flags.get(span["block_id"], [])
         }
     )
+    semantic_spans = [
+        span
+        for span in child.source_spans
+        if "page_number_candidate" not in flags.get(span["block_id"], [])
+    ]
     result["evidence_role"] = (
-        "bibliography"
+        "page_marker"
+        if not semantic_spans
+        else "bibliography"
         if all(
             "reference_section" in flags.get(span["block_id"], [])
-            for span in child.source_spans
+            for span in semantic_spans
         )
         else "body"
     )

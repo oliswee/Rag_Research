@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from app.services.pdf_parser import PDFParseResult
 from app.services.pdf_structure import PDFBlock
 
-CLEANER_VERSION = "conservative-v1"
+CLEANER_VERSION = "conservative-v2"
 
 
 @dataclass
@@ -173,7 +173,23 @@ def clean_document(parsed: PDFParseResult) -> CleanedDocument:
             key = candidates.get(block.id)
             if key and len(margins[key]) >= 3:
                 flags.add(f"repeated_{key[0]}_candidate")
-            if block.section_id in reference_sections:
+            page_marker = (
+                block.kind == "paragraph"
+                and block.bbox is not None
+                and page.height is not None
+                and page.width is not None
+                and bool(re.fullmatch(r"\d{1,4}", block.text.strip()))
+                # Prefer missing an offset printed page number to suppressing
+                # an unrelated numeric cell or result near the lower margin.
+                and block.text.strip() == str(page.number)
+                and block.bbox[1] > page.height * 0.92
+                and page.width * 0.35
+                < (block.bbox[0] + block.bbox[2]) / 2
+                < page.width * 0.65
+            )
+            if page_marker:
+                flags.add("page_number_candidate")
+            elif block.section_id in reference_sections:
                 flags.add("reference_section")
             cleaned.flags = sorted(flags)
             blocks.append(cleaned)

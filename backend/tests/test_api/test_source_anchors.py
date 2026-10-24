@@ -108,3 +108,26 @@ async def test_legacy_citation_is_explicit_and_missing_source_is_404(
     assert response.json()["source_spans"] == []
     assert response.json()["original_pdf_url"] is None
     assert (await source_client.get("/api/sources/chunks/missing")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_page_number_retains_source_anchor_with_nonbody_role(
+    async_db_session,
+    source_client,
+):
+    doc = fitz.open()
+    doc.new_page(width=600, height=800).insert_text((295, 780), "1", fontsize=11)
+    payload = doc.tobytes()
+    doc.close()
+    paper = Paper(title="Page marker", type=PaperType.research_paper)
+    async_db_session.add(paper)
+    await async_db_session.flush()
+    build = await stage_generation(
+        async_db_session, paper, PDFParserService().parse(payload)
+    )
+    await async_db_session.commit()
+    response = await source_client.get(f"/api/sources/chunks/{build.children[0].id}")
+    assert response.status_code == 200
+    assert response.json()["excerpt"] == "1"
+    assert response.json()["evidence_role"] == "page_marker"
+    assert response.json()["source_spans"][0]["page"] == 1

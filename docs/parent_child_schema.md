@@ -92,8 +92,11 @@ summarizes selected generation publications and explicitly carries publication
 verification time; it does not attest to external changes after that time.
 
 Pure bibliography children are retained and tagged `evidence_role=bibliography`;
-QA and comparison exclude them from result evidence. Parser/cleaner quality flags
-remain on resolved sources. Ambiguous mixed body/reference chunks require audit.
+pure page markers use `evidence_role=page_marker`. QA and comparison exclude
+both from result evidence. Page-marker spans do not turn an otherwise pure
+bibliography child into body evidence. All original spans remain resolvable.
+Parser/cleaner quality flags remain on resolved sources. Ambiguous mixed
+body/reference chunks remain candidates for M8 audit.
 
 ## Source jump and repair examples
 
@@ -139,5 +142,8 @@ distinct spans. Active-only BM25 and generation-filtered in-memory Qdrant -> no
 retired/staged results. Pending/failed publication -> BM25 works. Old citations
 resolve original text. Invalid cross-paper parent associations fail. Migration
 preserves legacy IDs/evidence, and real-library backup/copy checks pass. These
-are engineering tests. Six-type parser review and 30 suspicious/20 ordinary
-cleaner fragment checks remain M2 human requirements. M8 Gold is separate.
+are engineering tests. The v6 checklist requires six-type automatic fixtures in
+M2; formal human PDF quality audit and Gold belong to M8. Earlier documentation
+incorrectly treated 30+20 human fragment checks as a M2 gate. Codex inspected
+those prepared samples for development debugging at the user's request;
+observations and limitations are recorded separately from human quality metrics.

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import fitz
 
-PARSER_VERSION = f"pymupdf-{fitz.VersionBind}:structured-v1"
+PARSER_VERSION = f"pymupdf-{fitz.VersionBind}:structured-v2"
 
 
 @dataclass
@@ -62,7 +62,7 @@ def _classify(text: str, size: float, body_size: float, fonts: list[str]) -> str
         return "formula"
     if len(text) <= 160 and (
         size > body_size * 1.2
-        or re.match(r"^\d+(?:\.\d+)*[.)]?\s+[A-Z]", text)
+        or re.match(r"^\d{1,2}(?:\.\d{1,2})*[.)]?\s+[A-Z]", text)
         or re.fullmatch(
             r"abstract|introduction|methods|results|discussion|conclusions?|references|bibliography",
             text,
@@ -75,7 +75,12 @@ def _classify(text: str, size: float, body_size: float, fonts: list[str]) -> str
 
 def _has_columns(candidates: list[_Candidate], width: float) -> bool:
     midpoint = width / 2
-    body = [item for item in candidates if item.kind not in {"heading", "table"}]
+    body = [
+        item
+        for item in candidates
+        if item.kind not in {"heading", "table"}
+        and item.bbox[2] - item.bbox[0] >= width * 0.10
+    ]
     left = [item for item in body if item.bbox[2] < midpoint]
     right = [item for item in body if item.bbox[0] > midpoint]
     return bool(
@@ -84,8 +89,58 @@ def _has_columns(candidates: list[_Candidate], width: float) -> bool:
         and max(min(item.bbox[1] for item in left), min(item.bbox[1] for item in right))
         < min(max(item.bbox[3] for item in left), max(item.bbox[3] for item in right))
         and min(item.bbox[0] for item in right) - max(item.bbox[2] for item in left)
-        > width * 0.03
+        > width * 0.015
     )
+
+
+def _join_inline_fragments(
+    candidates: list[_Candidate], width: float, flags: set[str]
+) -> list[_Candidate]:
+    """Reassemble near-touching spans on one baseline before finding columns.
+
+    Different font sizes/colors can make PyMuPDF return separate lines for one
+    visual sentence. Never join across a normal column gutter or table cell.
+    """
+    tables = [fitz.Rect(item.bbox) for item in candidates if item.kind == "table"]
+    eligible, retained = [], []
+    for item in candidates:
+        if item.kind == "paragraph" and not any(
+            rectangle.intersects(fitz.Rect(item.bbox)) for rectangle in tables
+        ):
+            eligible.append(item)
+        else:
+            retained.append(item)
+    rows: list[list[_Candidate]] = []
+    for item in sorted(eligible, key=lambda item: (item.bbox[1] + item.bbox[3]) / 2):
+        center = (item.bbox[1] + item.bbox[3]) / 2
+        previous = rows[-1][0] if rows else None
+        if (
+            previous is not None
+            and abs(center - (previous.bbox[1] + previous.bbox[3]) / 2)
+            <= min(item.size, previous.size) * 0.35
+        ):
+            rows[-1].append(item)
+        else:
+            rows.append([item])
+    for row in rows:
+        current = None
+        for item in sorted(row, key=lambda item: item.bbox[0]):
+            gap = item.bbox[0] - current.bbox[2] if current else -1
+            if current is not None and -0.5 <= gap <= min(
+                max(item.size, current.size) * 0.65, width * 0.015
+            ):
+                # Positive gaps can be genuine word spaces even between runs
+                # with slightly different font sizes. Only tolerate subpoint
+                # kerning noise when joining touching styled parts of a word.
+                separator = " " if gap > 0.5 else ""
+                current.text += separator + item.text
+                current.bbox = tuple(fitz.Rect(current.bbox) | fitz.Rect(item.bbox))
+                current.size = max(current.size, item.size)
+                flags.add("inline_fragments_rejoined")
+            else:
+                retained.append(item)
+                current = item
+    return retained
 
 
 def _reading_order(
@@ -183,6 +238,7 @@ def structure_page(
         if kind == "formula":
             flags.add("formula_requires_review")
         candidates.append(_Candidate(text, tuple(rectangle), size, kind))
+    candidates = _join_inline_fragments(candidates, page.rect.width, flags)
     ordered = _reading_order(candidates, page.rect.width, flags)
     # Join only aligned consecutive body lines; never remove text or duplicates.
     paragraphs: list[_Candidate] = []
@@ -220,7 +276,10 @@ def structure_page(
             if item.kind == "heading":
                 column_sections[item.column] = identifier
             block_section = column_sections[item.column]
-        last_section = block_section
+        # A later column without its own heading retains its local uncertainty,
+        # but must not roll back a heading when continuing onto the next page.
+        if item.kind == "heading":
+            last_section = identifier
         blocks.append(
             PDFBlock(
                 id=identifier,

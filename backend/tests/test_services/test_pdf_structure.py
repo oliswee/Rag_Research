@@ -78,6 +78,85 @@ def test_ruled_table_keeps_cells_and_marks_structure_as_heuristic():
     assert_anchors(result)
 
 
+def test_inline_colored_labels_remain_between_their_surrounding_words():
+    import re
+
+    def draw(document):
+        page = document.new_page(width=600, height=800)
+        prefix = "The text describes memory is<p>["
+        page.insert_text((50, 100), prefix, fontsize=11)
+        x = 50 + fitz.get_text_length(prefix, fontsize=11)
+        label = "REL=Relevant]Primary"
+        page.insert_text((x, 100.4), label, fontsize=10, color=(0.1, 0.1, 0.8))
+        page.insert_text((50, 116), "memory supports this answer.", fontsize=11)
+
+    parsed = PDFParserService().parse(pdf_bytes(draw))
+    assert any(
+        "memoryis<p>[REL=Relevant]Primarymemory" in re.sub(r"\s+", "", block.text)
+        for block in parsed.pages[0].blocks
+    )
+
+
+def test_inline_reassembly_preserves_positive_word_gaps_in_reverse_drawing_order():
+    def draw(document):
+        page = document.new_page(width=600, height=800)
+        x = 50 + fitz.get_text_length("The first", fontsize=11) + 1.7
+        page.insert_text((x, 100.4), "word matters.", fontsize=10)
+        page.insert_text((50, 100), "The first", fontsize=11)
+
+    parsed = PDFParserService().parse(pdf_bytes(draw))
+    assert parsed.pages[0].structured_text == "The first word matters."
+
+
+def test_narrow_gutter_columns_below_a_full_width_figure_read_down_each_column():
+    def draw(document):
+        page = document.new_page(width=600, height=800)
+        page.insert_text(
+            (50, 70), "Figure 1: A full width figure and caption", fontsize=11
+        )
+        for y, left, right in (
+            (170, "Left column first evidence line.", "Right column first evidence."),
+            (185, "Left column second evidence line.", "Right column second evidence."),
+        ):
+            # Text boxes leave a genuine but narrow gutter of about 12 points.
+            while fitz.get_text_length(left, fontsize=11) < 240:
+                left += "x"
+            while fitz.get_text_length(right, fontsize=11) < 240:
+                right += "x"
+            page.insert_text((50, y), left, fontsize=11)
+            page.insert_text((306, y), right, fontsize=11)
+
+    parsed = PDFParserService().parse(pdf_bytes(draw))
+    transcript = parsed.pages[0].structured_text
+    assert transcript.index("Left column second") < transcript.index(
+        "Right column first"
+    )
+    assert "multi_column_layout_heuristic" in parsed.pages[0].quality_flags
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "2020. URL https://arxiv.org/abs/2004.07202.",
+        "2021 Conference on Empirical Methods in Natural Language Processing",
+        "4749. Association for Computational Linguistics.",
+    ],
+)
+def test_bibliography_years_and_page_numbers_do_not_create_sections(line):
+    def draw(document):
+        page = document.new_page()
+        page.insert_text((50, 60), "References", fontsize=16)
+        page.insert_text((50, 100), line, fontsize=11)
+        page.insert_text(
+            (50, 130), "Bibliography continuation remains in references.", fontsize=11
+        )
+
+    parsed = PDFParserService().parse(pdf_bytes(draw))
+    blocks = parsed.pages[0].blocks
+    assert blocks[1].kind != "heading"
+    assert blocks[-1].section_id == blocks[0].id
+
+
 def test_line_crossing_table_boundary_is_retained_in_full():
     def draw(document):
         page = document.new_page(width=600, height=800)
@@ -132,6 +211,27 @@ def test_column_local_headings_do_not_assign_right_column_to_left_sections():
     )
     assert all(block.confidence == "low" for block in page.blocks)
     assert_anchors(result)
+
+
+def test_reference_heading_carries_to_next_page_after_other_column_continuation():
+    from app.services.source_cleaning import clean_document
+
+    def draw(document):
+        page = document.new_page(width=600, height=800)
+        page.insert_text((50, 80), "Conclusion", fontsize=16)
+        page.insert_text((50, 120), "Left column body evidence.", fontsize=11)
+        page.insert_text((50, 200), "References", fontsize=16)
+        page.insert_text((50, 240), "Author. A cited article.", fontsize=11)
+        page.insert_text((330, 120), "Other column continuation.", fontsize=11)
+        page.insert_text((330, 240), "More continuation evidence.", fontsize=11)
+        document.new_page(width=600, height=800).insert_text(
+            (50, 80), "Author. Another cited article.", fontsize=11
+        )
+
+    parsed = PDFParserService().parse(pdf_bytes(draw))
+    reference = next(b for b in parsed.pages[0].blocks if b.text == "References")
+    assert parsed.pages[1].blocks[0].section_id == reference.id
+    assert "reference_section" in clean_document(parsed).blocks[-1].flags
 
 
 def test_caption_is_preserved_as_source_text():

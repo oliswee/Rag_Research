@@ -137,3 +137,45 @@ def test_reference_boundary_is_marked_and_reference_text_is_retained(heading):
         == citation.cleaned_text
         == "Author A. 2024. A published study."
     )
+
+
+def test_centered_bottom_page_number_is_flagged_without_losing_table_numbers():
+    from app.services.source_cleaning import clean_document
+
+    document = fitz.open()
+    page = document.new_page(width=600, height=800)
+    page.insert_text((50, 60), "References", fontsize=16)
+    page.insert_text((50, 120), "Author. 2024. An article.", fontsize=11)
+    page.insert_text((290, 200), "70", fontsize=11)  # Numeric body/table control.
+    page.insert_text((295, 780), "1", fontsize=11)
+    data = document.tobytes()
+    document.close()
+    cleaned = clean_document(PDFParserService().parse(data))
+    marker = next(block for block in cleaned.blocks if block.raw_text.strip() == "1")
+    numeric = next(block for block in cleaned.blocks if block.raw_text.strip() == "70")
+    assert "page_number_candidate" in marker.flags
+    assert "reference_section" not in marker.flags
+    assert marker.cleaned_text.strip() == "1"
+    assert "page_number_candidate" not in numeric.flags
+
+
+@pytest.mark.parametrize("ruled", [False, True])
+def test_bottom_numeric_table_evidence_is_not_a_page_number(ruled):
+    from app.services.source_cleaning import clean_document
+
+    document = fitz.open()
+    page = document.new_page(width=600, height=800)
+    if ruled:
+        for x in (250, 300, 350):
+            page.draw_line((x, 740), (x, 790))
+        for y in (740, 760, 790):
+            page.draw_line((250, y), (350, y))
+    page.insert_text((270 if ruled else 290, 755 if ruled else 780), "70", fontsize=11)
+    data = document.tobytes()
+    document.close()
+    parsed = PDFParserService().parse(data)
+    if ruled:
+        assert parsed.pages[0].blocks[0].kind == "table"
+    cleaned = clean_document(parsed)
+    assert cleaned.blocks[0].cleaned_text.strip() == "70"
+    assert "page_number_candidate" not in cleaned.blocks[0].flags

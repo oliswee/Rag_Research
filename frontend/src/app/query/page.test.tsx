@@ -25,6 +25,7 @@ beforeEach(() => {
 it("rewrites questions automatically without showing a rewrite control", async () => {
   render(<QueryPage />);
   expect(screen.queryByText("Rewrite query with AI")).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: "Mode" })).not.toBeInTheDocument();
   const input = screen.getByPlaceholderText("Ask a question about your research...");
   fireEvent.change(input, { target: { value: "How does active retrieval work?" } });
   fireEvent.keyDown(input, { key: "Enter" });
@@ -33,7 +34,7 @@ it("rewrites questions automatically without showing a rewrite control", async (
     expect(submitQuery).toHaveBeenCalledWith(
       "How does active retrieval work?",
       undefined,
-      expect.objectContaining({ rewrite_query: true }),
+      expect.objectContaining({ rewrite_query: true, retrieval_mode: "hybrid" }),
     ),
   );
 
@@ -45,7 +46,7 @@ it("rewrites questions automatically without showing a rewrite control", async (
     expect(submitQuery).toHaveBeenCalledWith(
       "What about its latency?",
       "session-1",
-      expect.objectContaining({ rewrite_query: true }),
+      expect.objectContaining({ rewrite_query: true, retrieval_mode: "hybrid" }),
     ),
   );
 });

@@ -226,11 +226,21 @@ async def retrieve(
         for ranking in rankings:
             for rank, identifier in enumerate(ranking, 1):
                 scores[identifier] = scores.get(identifier, 0) + 1 / (fusion_k + rank)
+        fusion_stage = "rrf" if mode == "hybrid" or len(rankings) > 1 else "selected"
         trace.add_ranked(
-            "rrf",
-            [(identifier, scores[identifier]) for identifier in ids],
+            fusion_stage,
+            [
+                (identifier, scores[identifier] if fusion_stage == "rrf" else None)
+                for identifier in ids
+            ],
             duration_ms=(time.perf_counter() - merge_start) * 1000,
         )
+        if mode != "hybrid":
+            trace.add_ranked(
+                "selected", [(identifier, None) for identifier in ids], duration_ms=0
+            )
+        for item in trace.record["rankings"].get("rrf", []):
+            item["fused_rank"] = item["rank"]
         trace.set_mode(actual_mode)
     if not ids:
         return [], actual_mode

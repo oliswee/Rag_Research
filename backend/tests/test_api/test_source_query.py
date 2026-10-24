@@ -10,6 +10,61 @@ from app.schemas.query import FollowUpRequest, QueryRequest
 
 
 @pytest.mark.asyncio
+async def test_default_uploaded_source_request_and_followup_execute_hybrid(
+    async_db_session, monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(path))
+    paper = Paper(title="Uploaded only", authors=[], type=PaperType.research_paper)
+    async_db_session.add(paper)
+    await async_db_session.flush()
+    chunk = PaperChunk(
+        paper_id=paper.id,
+        chunk_index=0,
+        text="Retrieval latency improves.",
+        content_scope="full_text",
+        checksum="x",
+    )
+    async_db_session.add(chunk)
+    await async_db_session.commit()
+    monkeypatch.setattr(
+        "app.services.embedding_service.EmbeddingService.generate_text_batch",
+        AsyncMock(return_value=[[1.0]]),
+    )
+
+    class Index:
+        def __init__(self):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def search(self, *args, **kwargs):
+            return [(chunk.id, 0.9)]
+
+    monkeypatch.setattr("app.workflows.source_query.SourceVectorIndex", Index)
+    monkeypatch.setattr(
+        "app.routers.query.QueryWorkflow",
+        lambda **kwargs: pytest.fail("Source corpus bypassed by legacy default"),
+    )
+    response = await submit_query(
+        QueryRequest(query="retrieval latency"), async_db_session
+    )
+    assert QueryRequest(query="q").retrieval_mode == "hybrid"
+    assert response["retrieval_mode"] == "hybrid" and response["query_count"] == 1
+    record = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert all(stage in record["rankings"] for stage in ["bm25", "dense", "rrf"])
+    assert len(record["retrieval_branches"]) == 2
+    response = await follow_up_query(
+        FollowUpRequest(query="retrieval latency", session_id=response["session_id"]),
+        async_db_session,
+    )
+    assert response["retrieval_mode"] == "hybrid"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "field,value",
     [

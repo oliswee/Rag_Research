@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 
 from app.config import settings
+from app.services.source_windows import citable_ranges, original_union
 
 
 @dataclass
@@ -88,7 +89,26 @@ def _child_block(group):
             text += ("\n\n" if text else "") + excerpt
             positions[excerpt] = [start, len(text)]
             spans.extend(source.get("source_spans", []))
-        citations.append({"id": source["chunk_id"], "ranges": [positions[excerpt]]})
+        citations.append(
+            {
+                "id": source["chunk_id"],
+                "paper_id": source["paper_id"],
+                "ranges": [positions[excerpt]],
+            }
+        )
+    original = original_union(group)
+    if original is not None:
+        mapped = citable_ranges(*original, group)
+        if mapped is not None:
+            text, spans = original
+            citations = [
+                {
+                    "id": s["chunk_id"],
+                    "paper_id": s["paper_id"],
+                    "ranges": mapped[s["chunk_id"]],
+                }
+                for s in group
+            ]
     return {
         "text": text,
         "child_ids": [s["chunk_id"] for s in group],
@@ -98,6 +118,15 @@ def _child_block(group):
             dict.fromkeys(s["parent_id"] for s in group if s.get("parent_id"))
         ),
         "paper_ids": list(dict.fromkeys(s["paper_id"] for s in group)),
+        "papers": list(
+            {
+                s["paper_id"]: {
+                    "id": s["paper_id"],
+                    "title": s.get("title", "Unknown paper")[:200],
+                }
+                for s in group
+            }.values()
+        ),
         "document_version": group[0].get("document_version"),
         "content_scope": group[0].get("content_scope", "full_text"),
         "source_origins": list(
@@ -119,11 +148,10 @@ def _parent_block(group, budget):
     """Map child anchors into one validated parent; expand at sentence boundaries."""
     fallback = _child_block(group)
     source = group[0]
-    parent = source.get("parent")
-    if not parent or parent.get("id") != source.get("parent_id"):
+    original = original_union(group, include_parents=True)
+    if original is None:
         return fallback
-    raw = parent.get("raw_text", "")
-    spans = parent.get("source_spans", [])
+    raw, spans = original
     segments, cursor = [], 0
     for anchor in spans:
         length = anchor["raw_end"] - anchor["raw_start"]
@@ -208,12 +236,19 @@ def _parent_block(group, budget):
             if match is None:
                 return fallback
             locations.append([match[2] + a - match[0], match[2] + b - match[0]])
-        citations.append({"id": child["chunk_id"], "ranges": locations})
+        citations.append(
+            {
+                "id": child["chunk_id"],
+                "paper_id": child["paper_id"],
+                "ranges": locations,
+            }
+        )
     return {
         **fallback,
         "text": text,
         "citations": citations,
         "source_spans": output_spans,
+        "pages": sorted({s["page"] for s in output_spans if s.get("page") is not None}),
         "expansion_status": "parent_window",
     }
 
@@ -224,6 +259,7 @@ def render_blocks(blocks):
         "text",
         "citations",
         "paper_ids",
+        "papers",
         "parent_ids",
         "document_version",
         "content_scope",

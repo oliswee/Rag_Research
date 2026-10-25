@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.source_fts_v2 import active_chunk_sql
-from app.models import Paper, PaperChunk, SourceIndexGeneration
+from app.models import Paper, PaperChunk, PaperIdentifier, SourceIndexGeneration
 from app.services.retrieval_branches import collect_rankings
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.source_anchors import resolve_child
@@ -266,6 +266,20 @@ async def retrieve(
     if provider:
         statement = statement.where(Paper.import_source == provider)
     rows = (await db.execute(statement)).all()
+    doi_by_paper = (
+        dict(
+            (
+                await db.execute(
+                    select(PaperIdentifier.paper_id, PaperIdentifier.value).where(
+                        PaperIdentifier.paper_id.in_({paper.id for _, paper in rows}),
+                        PaperIdentifier.kind == "doi",
+                    )
+                )
+            ).all()
+        )
+        if rows
+        else {}
+    )
     by_id = {}
     for chunk, paper in rows:
         try:
@@ -275,6 +289,7 @@ async def retrieve(
                 trace.record_failure("source_integrity", exc)
             continue
         source.update(title=paper.title, source_url=chunk.source_url or paper.source)
+        source["doi"] = doi_by_paper.get(paper.id)
         by_id[chunk.id] = source
     resolved = [
         by_id[chunk_id]
@@ -295,6 +310,18 @@ async def retrieve(
             reserved.add(source["chunk_id"])
         resolved = [s for s in resolved if s["chunk_id"] in reserved]
     if trace is not None:
+        admitted = {s["chunk_id"] for s in resolved}
+        trace.record["candidate_decisions"] = [
+            {
+                "child_id": identifier,
+                "reason": "included"
+                if identifier in admitted
+                else "candidate_budget"
+                if identifier in by_id
+                else "source_unavailable",
+            }
+            for identifier in ids
+        ]
         trace.record_sources(resolved, generations, used_vectors=bool(dense))
         trace.add_ranked(
             "sqlite_resolved",

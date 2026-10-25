@@ -35,9 +35,9 @@
 
 **Interfaces:** Consumes validated source dictionaries and original question. Produces `rerank_children(question, sources, *, trace=None, scorer=None, timeout=None) -> list[dict]`, retaining every unique candidate; `select_children(sources, limit, paper_ids=None) -> list[dict]`. Local scorer exposes model/fingerprint and `score(question, texts)`.
 
-- [ ] Write RED tests for original question, score order/stable ties, all candidates retained, invalid/NaN/partial scores, timeout/error/busy fallback and 2–5 paper coverage.
-- [ ] Implement local cached `Xenova/ms-marco-MiniLM-L-6-v2`, CPU threads2, guarded worker lifetime and safe Trace metadata. No runtime download.
-- [ ] Run targeted tests and config/version regressions; commit task.
+- [x] Write RED tests for original question, score order/stable ties, all candidates retained, invalid/NaN/partial scores, timeout/error/busy fallback and 2–5 paper coverage.
+- [x] Implement local cached `Xenova/ms-marco-MiniLM-L-6-v2`, CPU threads2, guarded worker lifetime and safe Trace metadata. No runtime download.
+- [x] Run targeted tests and config/version regressions; commit task.
 
 ### Task 2: Parent windows and bounded packing
 
@@ -45,9 +45,9 @@
 
 **Interfaces:** `pack_context(sources, *, paper_ids=None, budget=None, parent_budget=None, expand=True, trace=None) -> PackedContext`; result holds `sources`, `blocks`, rendered `text`, `coverage`, exact `token_units`. `resolve_child` accepts explicit safe-parent-fallback mode for retrieval while retaining strict document/child integrity.
 
-- [ ] Write RED tests for same-parent merge/all child mappings, missing/corrupt parent, large parent window, overlapping spans, cross-page decimal/unit preservation, child over budget, explicit 2–5 paper quotas, duplicate DOI/version and mixed origins/abstracts.
-- [ ] Implement child-first admission followed by bounded parent expansion; map window slices to original spans. Validate parent/child matching; fall back to original child. Track every candidate/drop/paper status without source text in Trace.
-- [ ] Run packing/anchors regressions; commit task.
+- [x] Write RED tests for same-parent merge/all child mappings, missing/corrupt parent, large parent window, overlapping spans, cross-page decimal/unit preservation, child over budget, explicit 2–5 paper quotas, duplicate DOI/version and mixed origins/abstracts.
+- [x] Implement child-first admission followed by bounded parent expansion; map window slices to original spans. Validate parent/child matching; fall back to original child. Track every candidate/drop/paper status without source text in Trace.
+- [x] Run packing/anchors regressions; commit task.
 
 ### Task 3: Normal Hybrid integration and actual prompt attribution
 
@@ -55,9 +55,9 @@
 
 **Interfaces:** `retrieve(..., candidate_limit=None)` preserves current top10 baseline by default, permits bounded M4 candidate pool up to50. `prepare_evidence` orchestrates rerank/select/pack. `answer_from_evidence(..., packed_context=None)` renders prepared text but validates quotes only in original source excerpts.
 
-- [ ] Write RED source/API tests proving default Hybrid uses original question and30 candidates, explicit baselines remain flat, prompt IDs equal admitted sources, and uncitable parent-only quotes fail validation.
-- [ ] Implement integration for initial and followup source queries; return per-paper context coverage, retain exact citations and baseline behavior. Trace records prompt only when sent to generation.
-- [ ] Run relevant API/workflow tests and full backend suite; commit task.
+- [x] Write RED source/API tests proving default Hybrid uses original question and30 candidates, explicit baselines remain flat, prompt IDs equal admitted sources, and uncitable parent-only quotes fail validation.
+- [x] Implement integration for initial and followup source queries; return per-paper context coverage, retain exact citations and baseline behavior. Trace records prompt only when sent to generation.
+- [x] Run relevant API/workflow tests and full backend suite; commit task.
 
 ### Task 4: Development evaluation and delivery
 
@@ -65,9 +65,9 @@
 
 **Interfaces:** Frozen QASPER manifest/labels and saved M3 branch rankings supply up to30 candidates by replay of validated lists; no claim of new retrieval timing. Actual local cross-encoder scores and flat/parent packing run per case. Public QASPER legacy chunks have no native M2 parents: use explicit adjacent-chunk development parents with full provenance, and separately test actual M2 library parent anchors.
 
-- [ ] RED tests for replay/evaluation separation, deterministic metric computation, input hashes and parent provenance.
-- [ ] Run actual40-case development reranking/packing with model digest, CPU p50/p95, candidate/prompt evidence coverage and rank metrics. Run bounded local DeepEval Contextual Relevancy/Precision smoke with public reference; failures stay not_evaluated. Save raw data ignored, reports tracked.
-- [ ] Final backend tests, Ruff, frontend gates if touched, privacy check; one fresh whole-branch reviewer and one RED/GREEN fix pass for important findings.
+- [x] RED tests for replay/evaluation separation, deterministic metric computation, input hashes and parent provenance.
+- [x] Run actual40-case development reranking/packing with model digest, CPU p50/p95, candidate/prompt evidence coverage and rank metrics. Run bounded local DeepEval Contextual Relevancy/Precision smoke with public reference; failures stay not_evaluated. Save raw data ignored, reports tracked.
+- [x] Final backend tests, Ruff, frontend gates if touched, privacy check; one fresh whole-branch reviewer and one RED/GREEN fix pass for important findings.
 - [ ] Commit/push own branch, dependent Draft PR against M3, verify exact-head remote CI and notify user M4 engineering completion. Do not merge.
 
 ## Decisions and preflight
@@ -76,3 +76,7 @@
 - Lightweight MiniLM uses existing FastEmbed dependency (official Qdrant documentation and installed0.9.0 source checked); BGE embeddings unchanged.
 - Task1 → Task3: ordered validated sources; Task2 → Task3: `PackedContext.text/sources` are authoritative prompt material; Task3 → Task4: baselines remain opt-in flat and public replay is explicitly distinguished from fresh retrieval.
 - Coverage means inclusion in prompt; semantic support is unknown until answer validation, never inferred from selection alone.
+
+## Execution evidence (2026-10-25)
+
+Task1 cbc0b2c;Task2 8def353;Task3 3c4eda7. Final reviewer3 P2 findings all reproduced RED then fixed;41 focused checks passed. Actual40-case local rerank and6localJudge items recorded in m4_development.md and separate metrics_history.md. One Windows event-loop setup error retained; metadata16/16retry and final serial whole backend932/17warnings/432.89s passed. Ruff158 files, wholebranch24-file privacy gate and measured source-fingerprint check passed. Commit/push/dependent Draft PR and exact-head CI are recorded in the delivery ledger/PR; no merge authorized.

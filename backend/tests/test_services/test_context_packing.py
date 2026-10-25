@@ -247,6 +247,53 @@ def test_disallowed_bibliography_is_explained_and_not_packed():
     )
 
 
+def test_prompt_retains_paper_titles_and_citation_paper_mapping_without_trace_text():
+    from app.services.context_packing import pack_context
+
+    recorder = RetrievalTrace("q", {}, corpus_version="test")
+    packed = pack_context([source(title="Named Alpha study")], trace=recorder)
+    block = json.loads(packed.text)
+    assert block["papers"] == [{"id": "p", "title": "Named Alpha study"}]
+    assert block["citations"][0]["paper_id"] == "p"
+    assert "Named Alpha study" not in json.dumps(recorder.record)
+
+
+def test_partially_overlapping_parents_union_original_text_and_both_citations():
+    from app.services.context_packing import pack_context
+
+    left, right = "First result. Shared result.", "Shared result. Last result."
+    a = source(text=left, parent=parent(left))
+    b = source(
+        "c2",
+        right,
+        parent_id="p2",
+        source_spans=[span(right, 14)],
+        parent={**parent(right, [span(right, 14)]), "id": "p2"},
+    )
+    packed = pack_context([a, b], budget=1800)
+    block = packed.blocks[0]
+    assert block["text"] == "First result. Shared result. Last result."
+    assert block["child_ids"] == ["c1", "c2"]
+    assert [c["ranges"] for c in block["citations"]] == [[[0, 28]], [[14, 41]]]
+
+
+def test_expanded_background_pages_follow_actual_admitted_spans():
+    from app.services.context_packing import pack_context
+
+    first, second = "First result.", "Page two background."
+    full = first + "\n\n" + second
+    a = source(
+        text=first,
+        source_spans=[span(first)],
+        parent=parent(full, [span(first), span(second, page=2, block="b2")]),
+    )
+    packed = pack_context([a], budget=1800)
+    assert second in packed.blocks[0]["text"]
+    assert json.loads(packed.text)["pages"] == [1, 2]
+    assert packed.sources[0]["page_start"] == 1
+    assert packed.sources[0]["page_end"] == 1
+
+
 def test_background_fraction_is_structural_not_an_invented_relevance_score():
     from app.services.context_packing import pack_context
 

@@ -13,6 +13,7 @@ from app.config import settings
 from app.models import (
     Paper,
     PaperChunk,
+    PaperIdentifier,
     Pattern,
     SourceDocument,
     SourceIndexGeneration,
@@ -105,6 +106,14 @@ async def corpus_version(db: AsyncSession) -> str:
     """
     fingerprint = hashlib.sha256()
     queries = (
+        (
+            "paper_identifiers",
+            select(
+                PaperIdentifier.paper_id, PaperIdentifier.kind, PaperIdentifier.value
+            ).order_by(
+                PaperIdentifier.paper_id, PaperIdentifier.kind, PaperIdentifier.value
+            ),
+        ),
         (
             "papers",
             select(

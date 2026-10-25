@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.models import Paper, PaperChunk, PaperType
+from app.models import Paper, PaperChunk, PaperIdentifier, PaperType
 from app.services.retrieval_branches import BranchResult
 from app.services.retrieval_trace import RetrievalTrace
 from app.workflows.source_query import answer_from_evidence, retrieve
@@ -19,6 +19,10 @@ async def test_candidate_pool_is_larger_than_baseline_and_reserves_requested_pap
     ]
     async_db_session.add_all(papers)
     await async_db_session.flush()
+    identifier = PaperIdentifier(
+        paper_id=papers[0].id, kind="doi", value="10.1000/local"
+    )
+    async_db_session.add(identifier)
     children = [
         PaperChunk(
             paper_id=papers[0 if i < 35 else 1].id,
@@ -42,6 +46,13 @@ async def test_candidate_pool_is_larger_than_baseline_and_reserves_requested_pap
     monkeypatch.setattr("app.workflows.source_query.collect_rankings", branches)
     baseline, _ = await retrieve(async_db_session, "result", mode="bm25")
     assert len(baseline) == 10
+    assert baseline[0]["doi"] == "10.1000/local"
+    from app.services.trace_versions import corpus_version
+
+    before = await corpus_version(async_db_session)
+    identifier.value = "10.1000/revised-metadata"
+    await async_db_session.commit()
+    assert await corpus_version(async_db_session) != before
     recorder = RetrievalTrace("result", {}, corpus_version="test")
     candidates, _ = await retrieve(
         async_db_session,
@@ -54,6 +65,13 @@ async def test_candidate_pool_is_larger_than_baseline_and_reserves_requested_pap
     assert len(candidates) == 30
     assert {s["paper_id"] for s in candidates} == {p.id for p in papers}
     assert recorder.record["retrieval_budget"]["candidate_k"] == 30
+    assert (
+        sum(
+            d["reason"] == "candidate_budget"
+            for d in recorder.record["candidate_decisions"]
+        )
+        == 6
+    )
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,8 @@ from app.services.evidence_routing import (
         ("Find papers", {"only_uploaded": True}, "discover", True),
         ("只用上传的论文，比较方法", {}, "compare", True),
         ("Only use local papers; latest memory", {}, "latest", True),
+        ("不要联网，找最新论文", {}, "latest", True),
+        ("只能使用上传的论文", {}, "factual", True),
     ],
 )
 def test_literal_policy(question, fields, intent, blocked):
@@ -136,3 +138,17 @@ def test_retrieval_failure_does_not_mean_corpus_gap():
     result = assess_local(policy, [], LocalFacts(), "retrieval_failed", "failed")
     assert result.state == "retrieval_failure"
     assert "known_corpus_gap" not in result.reasons
+
+
+def test_opposed_findings_and_failed_reranker_are_not_sufficient():
+    policy = parse_policy(QueryRequest(query="memory accuracy"))
+    sources = [
+        {"excerpt": text, "raw_start": 0, "raw_end": len(text)}
+        for text in ["Memory accuracy improves.", "Memory accuracy does not improve."]
+    ]
+    result = assess_local(policy, sources, LocalFacts(), "hybrid", "failed")
+    assert result.state == "uncertain"
+    assert (
+        "conflicting_evidence" in result.reasons
+        and "reranker_unavailable" in result.reasons
+    )

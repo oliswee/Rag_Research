@@ -1,8 +1,12 @@
+import asyncio
 import hashlib
+import multiprocessing
+import time
 
 import fitz
 import pytest
 
+from app.config import settings
 from app.schemas.query import QueryRequest
 from app.services.academic_search import PaperIdentity
 from app.services.evidence_routing import parse_policy
@@ -111,6 +115,46 @@ async def test_unknown_permission_and_local_only_do_not_call_fetcher(license):
         fetcher=forbidden,
     )
     assert not pool.sources and not pool.records
+
+
+def slow_native_worker(connection, payload, max_pages):
+    time.sleep(10)
+
+
+@pytest.mark.asyncio
+async def test_native_deadline_terminates_worker_and_releases_slot(monkeypatch):
+    from app.services import temporary_pdf
+
+    before = {p.pid for p in multiprocessing.active_children()}
+    monkeypatch.setattr(settings, "web_parser_timeout_seconds", 0.05)
+    monkeypatch.setattr(temporary_pdf, "_worker", slow_native_worker)
+    with pytest.raises(TimeoutError):
+        await parse_temporary_pdf(pdf_bytes())
+    assert {p.pid for p in multiprocessing.active_children()} <= before
+    assert temporary_pdf._SLOT.acquire(blocking=False)
+    temporary_pdf._SLOT.release()
+
+
+@pytest.mark.asyncio
+async def test_temporary_download_obeys_shorter_request_deadline(monkeypatch):
+    monkeypatch.setattr(settings, "web_timeout_seconds", 0.01)
+
+    async def slow_fetch(*args, **kwargs):
+        await asyncio.sleep(0.1)
+        return pdf_bytes()
+
+    pool = await build_web_evidence(
+        [
+            candidate(
+                open_access=True, pdf_url="https://example.org/a.pdf", license="cc-by"
+            )
+        ],
+        parse_policy(QueryRequest(query="memory")),
+        (),
+        fetcher=slow_fetch,
+    )
+    assert pool.sources[0]["evidence_level"] == "abstract_only"
+    assert pool.events[0]["error_type"] == "TimeoutError"
 
 
 @pytest.mark.asyncio

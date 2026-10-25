@@ -26,7 +26,7 @@ class WebEvidencePool:
 
 
 def _ranges(text, size=1000):
-    """Keep whole sentences; skip an overlong indivisible sentence, never cut a number."""
+    """Keep whole sentences; skip indivisible overlong sentences."""
     start = 0
     for match in re.finditer(r"(?<=[.!?。！？])\s+|\n\n+", text):
         end = match.end()
@@ -152,13 +152,16 @@ async def build_web_evidence(
             pdf_attempted = True
             try:
                 async with asyncio.timeout(budget.remaining):
-                    payload = await fetcher(
-                        pdf_url,
-                        max_bytes=settings.web_pdf_bytes,
-                        max_redirects=2,
-                        same_host=True,
-                        on_attempt=budget.consume,
-                    )
+                    async with asyncio.timeout(
+                        min(settings.web_timeout_seconds, budget.remaining)
+                    ):
+                        payload = await fetcher(
+                            pdf_url,
+                            max_bytes=settings.web_pdf_bytes,
+                            max_redirects=2,
+                            same_host=True,
+                            on_attempt=budget.consume,
+                        )
                     parsed = await parser(payload)
                     if (
                         scoped_native
@@ -184,7 +187,9 @@ async def build_web_evidence(
                                 } & set(flags):
                                     continue
                                 if (
-                                    page.text[block.raw_start : block.raw_end]
+                                    page.structured_text[
+                                        block.raw_start : block.raw_end
+                                    ]
                                     != block.text
                                 ):
                                     continue

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 from datetime import date
 
@@ -342,6 +343,7 @@ async def answer_from_evidence(
         source
         for source in evidence
         if source.get("evidence_role") not in {"bibliography", "page_marker"}
+        and source.get("evidence_level") != "metadata_only"
     ]
     if not evidence:
         return (
@@ -349,6 +351,10 @@ async def answer_from_evidence(
             "Discover or import relevant papers first.",
             [],
         )
+    if packed_context is not None and len(evidence) != len(packed_context.sources):
+        from app.services.context_packing import pack_context
+
+        packed_context = pack_context(evidence, expand=False, trace=trace)
     from app.services.llm_client import llm_available
 
     if not llm_available():
@@ -386,6 +392,9 @@ async def answer_from_evidence(
             '"supporting_quotes":{"exact excerpt ID":"verbatim supporting quote"}}]}. '
             "Every claim needs a source ID and a verbatim supporting quote from "
             "that excerpt. Say nothing unsupported."
+            " Abstract evidence supports only statements in the abstract; never "
+            "claim full-text access or experiment details absent from the quotes. "
+            "Metadata is bibliographic information, never experimental evidence. "
             " Context blocks can include parent background. Only text within "
             "each child's citable character ranges may support its citation; "
             "parent background alone is not a citable child quote. Offsets refer "
@@ -417,6 +426,22 @@ async def answer_from_evidence(
             for source_id in ids
         ):
             continue
+        abstract_only = all(
+            allowed[i].get("evidence_level", allowed[i].get("content_scope"))
+            in {"abstract", "abstract_only"}
+            for i in ids
+        )
+        if abstract_only:
+            numbers = set(re.findall(r"\d+(?:\.\d+)?", claim["text"]))
+            quoted_numbers = set(
+                re.findall(r"\d+(?:\.\d+)?", " ".join(quotes[i] for i in ids))
+            )
+            if numbers - quoted_numbers or re.search(
+                r"full[ -]?text|全文|全篇|read the (?:entire|complete) paper",
+                claim["text"],
+                re.I,
+            ):
+                continue
         if claim["text"].strip():
             candidates.append(
                 (

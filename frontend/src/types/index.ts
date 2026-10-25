@@ -184,6 +184,20 @@ export interface QueryResponse {
   retrieval_mode?: string | null;
   retrieval_query?: string | null;
   rewrite_status?: "disabled" | "applied" | "unavailable" | "failed" | null;
+  routing?: { intent: string; action: string; sufficiency: string; reasons: string[]; local_retry_count: number; local_only: boolean; only_uploaded: boolean };
+  web_records?: WebRecord[];
+  notices?: string[];
+}
+
+export interface WebRecord {
+  paper_id: string;
+  title: string;
+  source_url: string | null;
+  evidence_level: "full_text" | "abstract_only" | "metadata_only";
+  license?: string | null;
+  retrieved_at?: string | null;
+  access_status?: string;
+  version_status?: string;
 }
 
 export interface Evidence {
@@ -195,6 +209,10 @@ export interface Evidence {
   excerpt: string;
   page_start: number | null;
   page_end: number | null;
+  source_origin?: string;
+  evidence_level?: "full_text" | "abstract_only" | "metadata_only";
+  license?: string | null;
+  retrieved_at?: string | null;
 }
 
 export interface Candidate {

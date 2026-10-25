@@ -175,6 +175,15 @@ class SessionManager:
             )
             return True
 
+    def set_query_scope(self, session_id: str, scope: dict) -> None:
+        """Keep only primitive request constraints, never the ephemeral Web pool."""
+        import copy
+
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is not None:
+                session.query_scope = copy.deepcopy(scope)
+
     def delete_session(self, session_id: str) -> bool:
         """Delete a session by ID.
 

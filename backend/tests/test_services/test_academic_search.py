@@ -8,6 +8,7 @@ from app.services.academic_search import (
     AcademicSearch,
     PaperIdentity,
     licensed_location,
+    match_identity,
 )
 from app.services.evidence_routing import parse_policy
 
@@ -135,7 +136,10 @@ def test_unknown_or_restricted_license_never_auto_fetches(license):
 
 @pytest.mark.asyncio
 async def test_arxiv_versions_are_not_collapsed_or_matched_to_wrong_version():
-    xml = """<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>https://arxiv.org/abs/2401.00001v2</id><title>Memory</title><summary>Memory works.</summary><published>2024-01-01</published></entry></feed>"""
+    xml = """<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+    <id>https://arxiv.org/abs/2401.00001v2</id><title>Memory</title>
+    <summary>Memory works.</summary><published>2024-01-01</published>
+    </entry></feed>"""
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(200, text=xml))
     ) as client:
@@ -144,3 +148,40 @@ async def test_arxiv_versions_are_not_collapsed_or_matched_to_wrong_version():
             [PaperIdentity("a", arxiv_id="2401.00001v1")],
         )
     assert not result.candidates
+
+
+def test_explicit_arxiv_version_cannot_be_bypassed_by_doi_or_provider_match():
+    identity = PaperIdentity(
+        "a",
+        doi="10.1234/a",
+        arxiv_id="2401.00001v1",
+        provider="openalex",
+        provider_id="W1",
+    )
+    assert not match_identity(
+        {"doi": "10.1234/a", "provider": "openalex", "provider_id": "W1"}, identity
+    )
+    assert match_identity({"doi": "10.1234/a", "arxiv_id": "2401.00001v1"}, identity)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fields,year",
+    [
+        ({"year_from": 2020, "year_to": 2025}, "2020-2025"),
+        ({"year_from": 2020}, "2020-"),
+        ({"year_to": 2025}, "-2025"),
+    ],
+)
+async def test_semantic_year_uses_documented_hyphen_range(fields, year):
+    def handler(request):
+        assert request.url.params["year"] == year
+        return httpx.Response(200, json={"data": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await AcademicSearch(client).search(
+            policy(provider="semantic_scholar", **fields)
+        )
+    # Adapter isolates provider failures, so verify the event as well as the assertion.
+    # A caught assertion would produce an unavailable event instead of ok.
+    assert result.events[0]["status"] == "ok"

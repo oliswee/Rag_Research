@@ -80,6 +80,9 @@ class PaperIdentity:
 
 def match_identity(candidate, identity):
     arxiv = candidate.get("arxiv_id")
+    if identity.arxiv_id and re.search(r"v\d+$", identity.arxiv_id):
+        # DOI/provider equivalence does not establish an explicit arXiv version.
+        return arxiv == identity.arxiv_id
     if identity.arxiv_id and arxiv:
         # Explicit versions must match. Unversioned IDs do not prove a version.
         if re.search(r"v\d+$", identity.arxiv_id) and arxiv != identity.arxiv_id:
@@ -219,7 +222,7 @@ class AcademicSearch:
                 ),
             }
             if policy.year_from or policy.year_to:
-                params["year"] = f"{policy.year_from or ''}:{policy.year_to or ''}"
+                params["year"] = f"{policy.year_from or ''}-{policy.year_to or ''}"
             raw = await fetch(
                 "https://api.semanticscholar.org/graph/v1/paper/search", params
             )
@@ -396,8 +399,9 @@ class AcademicSearch:
                                     continue
                                 c["title"] = str(c.get("title") or "Untitled")[:500]
                                 c["abstract"] = (
-                                    str(c["abstract"])[:16000]
+                                    str(c["abstract"])
                                     if c.get("abstract")
+                                    and len(str(c["abstract"])) <= 16000
                                     else None
                                 )
                                 c["retrieved_at"] = datetime.now(UTC).isoformat()

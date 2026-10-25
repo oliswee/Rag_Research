@@ -48,6 +48,7 @@ class ConversationSession(BaseModel):
     """A conversation session with history."""
 
     session_id: str = Field(..., description="Unique session identifier")
+    query_scope: dict = Field(default_factory=dict)
     history: list[ConversationTurn] = Field(
         default_factory=list,
         description="Conversation history",

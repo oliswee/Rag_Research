@@ -26,16 +26,21 @@ def parse_policy(request) -> QueryPolicy:
     text = request.query.lower()
     uploaded = request.only_uploaded or bool(
         re.search(
-            r"只(?:用|查|看|使用).{0,8}上传|仅.{0,4}上传|only\s+(?:use\s+)?(?:the\s+)?uploaded",
+            r"只(?:能)?(?:用|查|看|使用).{0,8}上传|仅.{0,4}上传"
+            r"|only\s+(?:use\s+)?(?:the\s+)?uploaded",
             text,
         )
     )
-    local = request.local_only or bool(
-        re.search(
-            r"仅.{0,4}本地|只(?:用|查|看|使用).{0,8}本地|only\s+(?:use\s+)?local"
-            r"|do not (?:search|use) (?:the )?(?:web|internet)",
-            text,
+    local = (
+        request.local_only
+        or bool(
+            re.search(
+                r"仅.{0,4}本地|只(?:用|查|看|使用).{0,8}本地|only\s+(?:use\s+)?local"
+                r"|do not (?:search|use) (?:the )?(?:web|internet)",
+                text,
+            )
         )
+        or bool(re.search(r"不要联网|禁止联网|不联网|不得外访|禁止外访", text))
     )
     intent = request.intent
     if request.latest or re.search(r"\blatest\b|\brecent\b|最新|近年", text):
@@ -84,7 +89,38 @@ class RoutingDecision:
 
 
 _STOP = set(
-    ["what", "which", "how", "does", "do", "is", "are", "the", "a", "an", "of", "for", "in", "to", "and", "or", "with", "explain", "compare", "methods", "results", "papers", "paper", "use", "only", "local", "uploaded", "latest", "find", "on"]
+    [
+        "what",
+        "which",
+        "how",
+        "does",
+        "do",
+        "is",
+        "are",
+        "the",
+        "a",
+        "an",
+        "of",
+        "for",
+        "in",
+        "to",
+        "and",
+        "or",
+        "with",
+        "explain",
+        "compare",
+        "methods",
+        "results",
+        "papers",
+        "paper",
+        "use",
+        "only",
+        "local",
+        "uploaded",
+        "latest",
+        "find",
+        "on",
+    ]
 )
 
 
@@ -139,8 +175,21 @@ def assess_local(
         for s in factual
     ):
         reasons.append("unverified_original_span")
-    if any(s.get("conflicting_evidence") for s in factual):
+    negative = [
+        s
+        for s in factual
+        if re.search(r"\bnot\b|无提升|没有改善", s.get("excerpt", ""), re.I)
+    ]
+    positive = [
+        s
+        for s in factual
+        if s not in negative
+        and re.search(r"\bimprov\w*|提升|改善", s.get("excerpt", ""), re.I)
+    ]
+    if any(s.get("conflicting_evidence") for s in factual) or (negative and positive):
         reasons.append("conflicting_evidence")
+    if factual and rerank_status in {"failed", "unavailable", "timeout", "busy"}:
+        reasons.append("reranker_unavailable")
     return Sufficiency(
         "uncertain" if reasons else "sufficient",
         tuple(dict.fromkeys(reasons)) or ("original_span_question_coverage",),

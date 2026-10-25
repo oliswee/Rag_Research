@@ -1,6 +1,6 @@
 # M5 Local-first Academic Web Routing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Run complete local retrieval first, then one bounded correction or permitted academic Web search, with ephemeral graded evidence and transparent fallback.
 
@@ -39,9 +39,9 @@
 
 **Interfaces:** Frozen `QueryPolicy` from `parse_policy(request)`; immutable fields question/intent/paper_ids/year/provider/local_only/only_uploaded. `LocalFacts` holds known scoped presence/index/text availability. `assess_local(policy, sources, facts, retrieval_mode, rerank_status) -> Sufficiency`; `route_after_local(policy, assessment, correction_count) -> RoutingDecision`.
 
-- [ ] RED table tests >=8 intent/constraint combinations, local sufficiency/uncertainty/failure/known gaps, abstract-only/conflict/numeric coverage and strict one-correction limit.
-- [ ] Implement literal-only policy and conservative reasons, bounds and allowlisted safe Trace fields. Provider access remains a later workflow action.
-- [ ] Run focused tests/config regressions; commit.
+- [x] RED table tests >=8 intent/constraint combinations, local sufficiency/uncertainty/failure/known gaps, abstract-only/conflict/numeric coverage and strict one-correction limit.
+- [x] Implement literal-only policy and conservative reasons, bounds and allowlisted safe Trace fields. Provider access remains a later workflow action.
+- [x] Run focused tests/config regressions; commit.
 
 ### Task 2: Budgeted academic search and licensed download boundary
 
@@ -49,9 +49,9 @@
 
 **Interfaces:** `AcademicSearch.search(policy, identities=()) -> SearchResult(candidates,events)`; `PaperIdentity` binds local paper/DOI/arXiv/provider/version. Each HTTP attempt consumes a shared budget and records sanitized outcome. `licensed_location(candidate)` requires known OA licence; optional Unpaywall resolution shares the same budget.
 
-- [ ] RED MockTransport fixtures for provider normalizers, two-provider partial failure,429/retry/timeout/size caps, latest sort/year/source/identity constraints, malformed/duplicate/versioned/no-DOI results and zero network under prohibited policy.
-- [ ] Implement adapter using fixed allowlisted API endpoints, existing normalizers/parsers and original query only; preserve versions and licence provenance, no persistent cache. Limit concurrency/provider request cadence.
-- [ ] RED then GREEN S1 optional guard tests for cross-domain redirects/private DNS/size/type and known versus unknown OA licence; commit.
+- [x] RED MockTransport fixtures for provider normalizers, two-provider partial failure,429/retry/timeout/size caps, latest sort/year/source/identity constraints, malformed/duplicate/versioned/no-DOI results and zero network under prohibited policy.
+- [x] Implement adapter using fixed allowlisted API endpoints, existing normalizers/parsers and original query only; preserve versions and licence provenance, no persistent cache. Limit concurrency/provider request cadence.
+- [x] RED then GREEN S1 optional guard tests for cross-domain redirects/private DNS/size/type and known versus unknown OA licence; commit.
 
 ### Task 3: Ephemeral graded evidence and bounded PDF parsing
 
@@ -59,9 +59,9 @@
 
 **Interfaces:** `build_web_evidence(candidates, policy, identities, *, fetcher, trace) -> WebEvidencePool` with factual sources, bibliographic records and sanitized events. Full text uses exact raw page/block/offset anchors and SHA document versions. `parse_temporary_pdf` runs native parser in a bounded single worker process and terminates on timeout; no database/session/index dependency.
 
-- [ ] RED fixtures for licensed OA PDF, abstract/metadata, duplicate versions, failed/stale links, malicious PDF, scoped version mismatch, exact original spans and byte/page/worker bounds.
-- [ ] Implement pure in-memory normalization, M2 cleaner/span reuse, conservative identity/permission validation and fallback levels; return external citation URLs and never database chunk URLs for Web IDs.
-- [ ] Verify no persistent paper/import/chunk/vector writes; run parser/download regressions and commit.
+- [x] RED fixtures for licensed OA PDF, abstract/metadata, duplicate versions, failed/stale links, malicious PDF, scoped version mismatch, exact original spans and byte/page/worker bounds.
+- [x] Implement pure in-memory normalization, M2 cleaner/span reuse, conservative identity/permission validation and fallback levels; return external citation URLs and never database chunk URLs for Web IDs.
+- [x] Verify no persistent paper/import/chunk/vector writes; run parser/download regressions and commit.
 
 ### Task 4: Local-first workflow, actual prompt and privacy integration
 
@@ -69,9 +69,9 @@
 
 **Interfaces:** `run_local_web(db, policy, history, trace, *, local_runner=None, searcher=None) -> RoutingResult(packed, web_records, decision, notices)`; local runner uses full existing retrieval and M4 packing. Final local/Web factual sources share one context budget; local originals retained on Web failure. Metadata remains separate from generation. Persist only request scope in session, not the Web pool.
 
-- [ ] RED >=8 end-to-end routes and >=5 joint failure injections: sufficient/no Web, absent papers/Web, suspected miss/one correction, latest/discover local-first, local/upload-only conflicts/no DNS,429, two-provider partial failure, no text, no answer and unknown version.
-- [ ] Integrate immutable constraints/followup inheritance and empty-library source routing. Keep explicit BM25/Dense baselines stable. Explain legacy Pattern-default test changes where new source/Web semantics intentionally replace them.
-- [ ] Verify original-question use, local excerpts absent from outbound requests, ephemeral no-write invariant, prompt IDs after budget trimming and abstract/metadata claim restrictions. Run backend suite and commit.
+- [x] RED >=8 end-to-end routes and >=5 joint failure injections: sufficient/no Web, absent papers/Web, suspected miss/one correction, latest/discover local-first, local/upload-only conflicts/no DNS,429, two-provider partial failure, no text, no answer and unknown version.
+- [x] Integrate immutable constraints/followup inheritance and empty-library source routing. Keep explicit BM25/Dense baselines stable. Explain legacy Pattern-default test changes where new source/Web semantics intentionally replace them.
+- [x] Verify original-question use, local excerpts absent from outbound requests, ephemeral no-write invariant, prompt IDs after budget trimming and abstract/metadata claim restrictions. Run backend suite and commit.
 
 ### Task 5: UI, development report and delivery
 

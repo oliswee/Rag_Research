@@ -13,18 +13,83 @@ export interface ResponseDisplayProps {
   onFollowUp?: (suggestion: string) => void;
 }
 
-const CONFIDENCE_VARIANTS: Record<string, "default" | "success" | "warning" | "secondary"> = {
+const CONFIDENCE_VARIANTS: Record<
+  string,
+  "default" | "success" | "warning" | "secondary"
+> = {
   high: "success",
   medium: "warning",
   low: "secondary",
 };
 
-export function ResponseDisplay({ response, onFollowUp }: ResponseDisplayProps) {
-  const [showAllSources, setShowAllSources] = useState(false);
-  const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
-  const [selectedRelevanceScore, setSelectedRelevanceScore] = useState<number | null>(null);
+function safeSourceUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return ["https:", "http:"].includes(url.protocol) &&
+      !url.username &&
+      !url.password
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
 
-  const handlePatternClick = (patternId: string, relevanceScore?: number | null) => {
+function EvidenceAccess({
+  origin,
+  level,
+  license,
+  retrievedAt,
+}: {
+  origin?: string;
+  level?: string;
+  license?: string | null;
+  retrievedAt?: string | null;
+}) {
+  const label =
+    level === "full_text"
+      ? "Full text"
+      : level === "abstract_only"
+        ? "Abstract only"
+        : "Metadata only";
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span className="font-medium">
+        {origin === "web" ? "Web" : "Local"} · {label}
+      </span>
+      {origin === "web" && (
+        <>
+          <span>
+            License: {license || "Unknown · no automatic full-text access"}
+          </span>
+          {retrievedAt && (
+            <time dateTime={retrievedAt}>
+              Retrieved {retrievedAt.slice(0, 10)}
+            </time>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export function ResponseDisplay({
+  response,
+  onFollowUp,
+}: ResponseDisplayProps) {
+  const [showAllSources, setShowAllSources] = useState(false);
+  const [selectedPatternId, setSelectedPatternId] = useState<string | null>(
+    null
+  );
+  const [selectedRelevanceScore, setSelectedRelevanceScore] = useState<
+    number | null
+  >(null);
+
+  const handlePatternClick = (
+    patternId: string,
+    relevanceScore?: number | null
+  ) => {
     setSelectedPatternId(patternId);
     setSelectedRelevanceScore(relevanceScore ?? null);
   };
@@ -72,25 +137,167 @@ export function ResponseDisplay({ response, onFollowUp }: ResponseDisplayProps) 
   if (response.retrieval_mode) {
     const evidence = response.evidence || [];
     const parts = response.response.split(/(\[C:[^\]]+\])/g);
-    return <div className="space-y-5">
-      <div className="whitespace-pre-wrap text-sm leading-7">{parts.map((part, index) => {
-        const match = /^\[C:([^\]]+)\]$/.exec(part);
-        if (!match) return <Fragment key={index}>{part}</Fragment>;
-        const source = evidence.find((item) => item.chunk_id === match[1]);
-        return source ? <a key={index} href={`#chunk-${source.chunk_id}`} className="mx-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-900 hover:underline">{source.title.slice(0, 24)}{source.page_start ? ` · p. ${source.page_start}` : source.content_scope === "abstract" ? " · abstract" : ""}</a> : null;
-      })}</div>
-      {response.rewrite_status === "applied" && response.retrieval_query && (
-        <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-          Searched as: {response.retrieval_query}
-        </p>
-      )}
-      {(response.rewrite_status === "unavailable" || response.rewrite_status === "failed") && (
-        <p className="text-xs text-muted-foreground">
-          Query rewrite was unavailable; search used the conversation context.
-        </p>
-      )}
-      {evidence.length > 0 && <section className="space-y-3"><h3 className="text-sm font-semibold">Source evidence · {response.retrieval_mode}</h3>{evidence.map((source) => <article id={`chunk-${source.chunk_id}`} key={source.chunk_id} className="rounded-xl border bg-muted/30 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold">{source.title}</h4><span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{source.content_scope === "abstract" ? "Abstract" : source.page_start ? `Page ${source.page_start}` : "Source text"}</span></div><details className="mt-3 text-sm leading-6 text-muted-foreground"><summary className="cursor-pointer border-l-2 border-emerald-600 pl-3">{source.excerpt.slice(0, 260)}{source.excerpt.length > 260 ? "… Read full excerpt" : ""}</summary>{source.excerpt.length > 260 && <blockquote className="mt-3 border-l-2 border-emerald-600 pl-3">{source.excerpt}</blockquote>}</details>{source.source_url && <a href={`${source.source_url}${source.page_start ? `#page=${source.page_start}` : ""}`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline">Open source <ExternalLink className="h-3 w-3" /></a>}</article>)}</section>}
-    </div>;
+    return (
+      <div className="space-y-5">
+        {response.routing && (
+          <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <p className="font-medium text-foreground">
+              {response.routing.action === "search_web"
+                ? "Library → Academic Web"
+                : "Library evidence"}
+              {response.routing.only_uploaded
+                ? " · uploaded papers only"
+                : response.routing.local_only
+                  ? " · local only"
+                  : ""}
+            </p>
+            <p>
+              {response.routing.intent === "latest" ||
+              response.routing.intent === "discover"
+                ? "Academic search requested for discovery or freshness."
+                : response.routing.sufficiency === "sufficient"
+                  ? "Local evidence covered this question."
+                  : "Local evidence may be incomplete; unsupported conclusions remain unknown."}
+            </p>
+          </div>
+        )}
+        {(response.notices || []).length > 0 && (
+          <ul className="space-y-1 text-xs leading-5 text-muted-foreground">
+            {response.notices?.map((notice, index) => (
+              <li key={index}>{notice}</li>
+            ))}
+          </ul>
+        )}
+        <div className="whitespace-pre-wrap text-sm leading-7">
+          {parts.map((part, index) => {
+            const match = /^\[C:([^\]]+)\]$/.exec(part);
+            if (!match) return <Fragment key={index}>{part}</Fragment>;
+            const source = evidence.find((item) => item.chunk_id === match[1]);
+            return source ? (
+              <a
+                key={index}
+                href={`#chunk-${source.chunk_id}`}
+                className="mx-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-900 hover:underline"
+              >
+                {source.title.slice(0, 24)}
+                {source.page_start
+                  ? ` · p. ${source.page_start}`
+                  : source.content_scope === "abstract"
+                    ? " · abstract"
+                    : ""}
+              </a>
+            ) : null;
+          })}
+        </div>
+        {response.rewrite_status === "applied" && response.retrieval_query && (
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            Searched as: {response.retrieval_query}
+          </p>
+        )}
+        {(response.rewrite_status === "unavailable" ||
+          response.rewrite_status === "failed") && (
+          <p className="text-xs text-muted-foreground">
+            Query rewrite was unavailable; search used the conversation context.
+          </p>
+        )}
+        {evidence.length > 0 && (
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">
+              Source evidence · {response.retrieval_mode}
+            </h3>
+            {evidence.map((source) => (
+              <article
+                id={`chunk-${source.chunk_id}`}
+                key={source.chunk_id}
+                className="rounded-xl border bg-muted/30 p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-sm font-semibold">{source.title}</h4>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    {source.content_scope === "abstract"
+                      ? "Abstract"
+                      : source.page_start
+                        ? `Page ${source.page_start}`
+                        : "Source text"}
+                  </span>
+                </div>
+                <EvidenceAccess
+                  origin={source.source_origin}
+                  level={
+                    source.evidence_level ||
+                    (source.content_scope === "abstract"
+                      ? "abstract_only"
+                      : "full_text")
+                  }
+                  license={source.license}
+                  retrievedAt={source.retrieved_at}
+                />
+                <details className="mt-3 text-sm leading-6 text-muted-foreground">
+                  <summary className="cursor-pointer border-l-2 border-emerald-600 pl-3">
+                    {source.excerpt.slice(0, 260)}
+                    {source.excerpt.length > 260 ? "… Read full excerpt" : ""}
+                  </summary>
+                  {source.excerpt.length > 260 && (
+                    <blockquote className="mt-3 border-l-2 border-emerald-600 pl-3">
+                      {source.excerpt}
+                    </blockquote>
+                  )}
+                </details>
+                {safeSourceUrl(source.source_url) && (
+                  <a
+                    href={`${safeSourceUrl(source.source_url)}${source.page_start ? `#page=${source.page_start}` : ""}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
+                  >
+                    Open source <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </article>
+            ))}
+          </section>
+        )}
+        {(response.web_records || []).length > 0 && (
+          <details className="rounded-xl border p-4 text-sm">
+            <summary className="cursor-pointer font-semibold">
+              Academic search records · {response.web_records?.length}
+            </summary>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Bibliographic information only does not support experimental
+              conclusions. Web records are not automatically imported.
+            </p>
+            <div className="mt-3 space-y-4">
+              {response.web_records?.map((record, index) => (
+                <article key={`${record.paper_id}-${index}`}>
+                  <h4 className="font-medium">{record.title}</h4>
+                  <EvidenceAccess
+                    origin="web"
+                    level={record.evidence_level}
+                    license={record.license}
+                    retrievedAt={record.retrieved_at}
+                  />
+                  {record.version_status === "mismatch" && (
+                    <p className="text-xs text-muted-foreground">
+                      Document version did not match the selected paper.
+                    </p>
+                  )}
+                  {safeSourceUrl(record.source_url) && (
+                    <a
+                      className="mt-1 inline-block text-xs text-emerald-700 hover:underline"
+                      href={safeSourceUrl(record.source_url)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Open bibliographic record
+                    </a>
+                  )}
+                </article>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -116,7 +323,9 @@ export function ResponseDisplay({ response, onFollowUp }: ResponseDisplayProps) 
       {response.confidence && (
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Confidence:</span>
-          <Badge variant={CONFIDENCE_VARIANTS[response.confidence] || "secondary"}>
+          <Badge
+            variant={CONFIDENCE_VARIANTS[response.confidence] || "secondary"}
+          >
             {response.confidence}
           </Badge>
         </div>
@@ -133,7 +342,9 @@ export function ResponseDisplay({ response, onFollowUp }: ResponseDisplayProps) 
               <SourceCard
                 key={source.pattern_id}
                 source={source}
-                onClick={() => handlePatternClick(source.pattern_id, source.relevance_score)}
+                onClick={() =>
+                  handlePatternClick(source.pattern_id, source.relevance_score)
+                }
               />
             ))}
           </div>
@@ -161,26 +372,27 @@ export function ResponseDisplay({ response, onFollowUp }: ResponseDisplayProps) 
       )}
 
       {/* Follow-up suggestions */}
-      {response.follow_up_suggestions && response.follow_up_suggestions.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-sm font-medium text-muted-foreground">
-            Follow-up questions
-          </h4>
-          <div className="flex flex-wrap gap-2">
-            {response.follow_up_suggestions.map((suggestion, i) => (
-              <Button
-                key={i}
-                variant="outline"
-                size="sm"
-                onClick={() => onFollowUp?.(suggestion)}
-                className="h-auto whitespace-normal text-left"
-              >
-                {suggestion}
-              </Button>
-            ))}
+      {response.follow_up_suggestions &&
+        response.follow_up_suggestions.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-muted-foreground">
+              Follow-up questions
+            </h4>
+            <div className="flex flex-wrap gap-2">
+              {response.follow_up_suggestions.map((suggestion, i) => (
+                <Button
+                  key={i}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onFollowUp?.(suggestion)}
+                  className="h-auto whitespace-normal text-left"
+                >
+                  {suggestion}
+                </Button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Pattern detail modal */}
       <PatternDetailModal

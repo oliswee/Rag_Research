@@ -1,213 +1,95 @@
-"""Tests for query API routes."""
+"""M5 supersedes the Pattern-default API with the local/Web evidence workflow."""
 
 import json
-from unittest.mock import AsyncMock, patch
 
-from fastapi import status
+import pytest
+from fastapi import HTTPException
 
 from app.config import settings
-from app.schemas.session import SourceReference
-from app.workflows import QueryResult
+from app.services.context_packing import pack_context
+from app.services.session_manager import session_manager
+from app.workflows.local_web import LocalRun
 
 
-class TestSubmitQuery:
-    """Tests for POST /api/query."""
+@pytest.fixture
+def evidence_api(monkeypatch, tmp_path):
+    path = tmp_path / "trace.jsonl"
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(path))
+    calls = []
 
-    def test_query_success_creates_session(self, client_with_db, monkeypatch, tmp_path):
-        """New query creates session and returns answer."""
-        trace_path = tmp_path / "trace.jsonl"
-        monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
-        mock_result = QueryResult(
-            answer="Based on the patterns...",
-            sources=[
-                SourceReference(
-                    pattern_id="pattern-1",
-                    summary="Paper Title",
-                    relevance_score=0.92,
-                ),
-            ],
-            confidence="high",
-            follow_up_suggestions=["Tell me more about X"],
-            session_id="session-123",
-            success=True,
+    async def local(db, policy, history, trace, **kwargs):
+        calls.append((policy, len(history)))
+        return LocalRun(
+            pack_context([], trace=trace), "hybrid", 1, "disabled", "fixture"
         )
 
-        with patch("app.routers.query.QueryWorkflow") as MockWorkflow:
-            mock_instance = AsyncMock()
-            mock_instance.run.return_value = mock_result
-            MockWorkflow.return_value = mock_instance
-
-            response = client_with_db.post(
-                "/api/query",
-                json={"query": "What patterns exist about agent memory?"},
-            )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["session_id"] == "session-123"
-        assert "Based on the patterns" in data["response"]
-        assert len(data["sources"]) == 1
-        assert data["confidence"] == "high"
-        trace = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[0])
-        assert trace["run_id"] == data["run_id"]
-        assert trace["support_status"] == "cited_unverified"
-
-    def test_query_with_session_id_continues_session(self, client_with_db):
-        """Query with session_id continues existing session."""
-        mock_result = QueryResult(
-            answer="Continuing the conversation...",
-            sources=[],
-            confidence="medium",
-            follow_up_suggestions=[],
-            session_id="existing-session",
-            success=True,
-        )
-
-        with patch("app.routers.query.QueryWorkflow") as MockWorkflow:
-            mock_instance = AsyncMock()
-            mock_instance.run.return_value = mock_result
-            MockWorkflow.return_value = mock_instance
-
-            response = client_with_db.post(
-                "/api/query",
-                json={
-                    "query": "Tell me more",
-                    "session_id": "existing-session",
-                },
-            )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["session_id"] == "existing-session"
-
-    def test_query_empty_returns_400(self, client_with_db):
-        """Empty query returns validation error."""
-        response = client_with_db.post(
-            "/api/query",
-            json={"query": ""},
-        )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-    def test_query_workflow_failure_returns_500(self, client_with_db):
-        """Workflow failure returns 500."""
-        mock_result = QueryResult(
-            success=False,
-            error="Embedding generation failed",
-            session_id="session-1",
-        )
-
-        with patch("app.routers.query.QueryWorkflow") as MockWorkflow:
-            mock_instance = AsyncMock()
-            mock_instance.run.return_value = mock_result
-            MockWorkflow.return_value = mock_instance
-
-            response = client_with_db.post(
-                "/api/query",
-                json={"query": "What about X?"},
-            )
-
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-
-    def test_query_no_results_returns_graceful_response(self, client_with_db):
-        """Query with no matching patterns returns helpful message."""
-        mock_result = QueryResult(
-            answer="I couldn't find any patterns...",
-            sources=[],
-            confidence="low",
-            follow_up_suggestions=[],
-            session_id="session-456",
-            success=True,
-        )
-
-        with patch("app.routers.query.QueryWorkflow") as MockWorkflow:
-            mock_instance = AsyncMock()
-            mock_instance.run.return_value = mock_result
-            MockWorkflow.return_value = mock_instance
-
-            response = client_with_db.post(
-                "/api/query",
-                json={"query": "Something not in library"},
-            )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["confidence"] == "low"
-
-    def test_query_includes_follow_up_suggestions(self, client_with_db):
-        """Query response includes follow-up suggestions."""
-        mock_result = QueryResult(
-            answer="Here's what I found...",
-            sources=[],
-            confidence="high",
-            follow_up_suggestions=[
-                "What are the limitations?",
-                "How does this compare to X?",
-            ],
-            session_id="session-789",
-            success=True,
-        )
-
-        with patch("app.routers.query.QueryWorkflow") as MockWorkflow:
-            mock_instance = AsyncMock()
-            mock_instance.run.return_value = mock_result
-            MockWorkflow.return_value = mock_instance
-
-            response = client_with_db.post(
-                "/api/query",
-                json={"query": "Tell me about agent memory"},
-            )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data["follow_up_suggestions"]) == 2
+    monkeypatch.setattr("app.routers.query.local_retrieval", local)
+    return path, calls
 
 
-class TestFollowUpQuery:
-    """Tests for POST /api/query/followup."""
+def test_query_creates_session_and_records_abstention(client_with_db, evidence_api):
+    path, calls = evidence_api
+    response = client_with_db.post("/api/query", json={"query": "memory"})
+    assert response.status_code == 200
+    data = response.json()
+    assert session_manager.get_session(data["session_id"]) is not None
+    assert data["evidence"] == [] and data["sources"] == []
+    assert data["confidence"] == "low" and "Insufficient" in data["response"]
+    trace = json.loads(path.read_text().splitlines()[0])
+    assert trace["run_id"] == data["run_id"] and trace["support_status"] == "abstain"
+    assert calls[0][0].retrieval_mode == "hybrid"
 
-    def test_followup_with_session_success(self, client_with_db):
-        """Follow-up with valid session continues conversation."""
-        mock_result = QueryResult(
-            answer="Building on our previous discussion...",
-            sources=[],
-            confidence="medium",
-            follow_up_suggestions=[],
-            session_id="session-abc",
-            success=True,
-        )
 
-        with patch("app.routers.query.QueryWorkflow") as MockWorkflow:
-            mock_instance = AsyncMock()
-            mock_instance.run.return_value = mock_result
-            MockWorkflow.return_value = mock_instance
+@pytest.mark.parametrize("endpoint", ["/api/query", "/api/query/followup"])
+def test_query_continues_real_session(client_with_db, evidence_api, endpoint):
+    first = client_with_db.post("/api/query", json={"query": "memory"}).json()
+    response = client_with_db.post(
+        endpoint, json={"query": "latency", "session_id": first["session_id"]}
+    )
+    assert (
+        response.status_code == 200
+        and response.json()["session_id"] == first["session_id"]
+    )
+    assert evidence_api[1][-1][1] == 2
 
-            response = client_with_db.post(
-                "/api/query/followup",
-                json={
-                    "query": "Can you elaborate on that?",
-                    "session_id": "session-abc",
-                },
-            )
 
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["session_id"] == "session-abc"
+@pytest.mark.parametrize(
+    "endpoint,body",
+    [
+        ("/api/query", {"query": ""}),
+        ("/api/query/followup", {"query": "memory"}),
+        ("/api/query/followup", {"query": "", "session_id": "s"}),
+    ],
+)
+def test_invalid_query_is_422(client_with_db, endpoint, body):
+    assert client_with_db.post(endpoint, json=body).status_code == 422
 
-    def test_followup_without_session_id_returns_400(self, client_with_db):
-        """Follow-up without session_id returns validation error."""
-        response = client_with_db.post(
-            "/api/query/followup",
-            json={"query": "Tell me more"},
-        )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+def test_unexpected_workflow_failure_is_traced(
+    client_with_db, evidence_api, monkeypatch
+):
+    async def fail(*args, **kwargs):
+        raise HTTPException(status_code=500, detail={"code": "QUERY_FAILED"})
 
-    def test_followup_empty_query_returns_400(self, client_with_db):
-        """Follow-up with empty query returns validation error."""
-        response = client_with_db.post(
-            "/api/query/followup",
-            json={"query": "", "session_id": "session-123"},
-        )
+    monkeypatch.setattr("app.routers.query.local_retrieval", fail)
+    response = client_with_db.post("/api/query", json={"query": "memory"})
+    assert response.status_code == 500
+    assert json.loads(evidence_api[0].read_text())["support_status"] == "error"
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+def test_no_results_has_notices_and_no_fabricated_suggestions(
+    client_with_db, evidence_api
+):
+    data = client_with_db.post("/api/query", json={"query": "memory"}).json()
+    assert data["notices"] and data["follow_up_suggestions"] == []
+    assert data["routing"]["local_retry_count"] == 1
+
+
+@pytest.mark.parametrize("endpoint", ["/api/query", "/api/query/followup"])
+def test_unknown_session_is_404(client_with_db, evidence_api, endpoint):
+    assert (
+        client_with_db.post(
+            endpoint, json={"query": "memory", "session_id": "missing"}
+        ).status_code
+        == 404
+    )

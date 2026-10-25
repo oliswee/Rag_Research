@@ -202,3 +202,26 @@ QASPER父段是明确标注的同章节相邻3个公开文本Chunk适配，不�
 **M4 本地 DeepEval 实测补充：**同一公开参考题、每模式首个上下文，Qwen3:4b-instruct（digest0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0）、DeepEval4.2.8、温度0、阈值0.5、默认模板、每项60秒：RRF Flat Relevancy0/Precision1（42407.153/19954.842ms）；Rerank Flat 0.166667/1（27531.665/18131.925ms）；Parent 0.166667/1（28323.249/19251.984ms）。6项均evaluated，Relevancy全部低于阈值；单上下文Precision=1不能证明整体排序质量或抵消低相关度，不宣称答案质量提升。API子调用数及tokens为null；框架cost=0不等于完整算力成本。没有付费云调用。
 
 **M4 最终交付验证：**一轮全量931通过/17警告/1测试启动错误（397.46s）；pytest-asyncio在Windows创建事件循环socketpair时返回10055，测试体尚未运行。对应metadata文件单独重跑16/16通过0.52s；随后串行完整回归 **932 passed、17 warnings、432.89s**。失败与成功日志分别保留output/m4_final_tests.log和m4_serial_retry_tests.log，不覆盖失败记录。Ruff check/format158文件通过；整个M4分支24文件隐私检查通过，实测代码指纹与当前App源码相同。远端CI以依赖Draft PR的最终提交记录为准，未合并。
+
+## 10. M5 本地优先路由与临时 Web 证据：2026-10-25
+
+代码基线M4 `418bd8e`，M5 Issue55 / `feat/55-m5-local-web-routing`。冻结事实/比较/发现/最新意图和论文/年份/来源/隐私范围；本地Hybrid→Child重排→Parent打包后，最多一次纠偏，再按许可搜索学术Web。网页池不自动写入SQLite/Qdrant。以下为开发诊断，**不是独立Gold、人工审核、正式路由准确率或真实Web回答收益**。
+
+| 指标 | 本次观察 | 统计边界 |
+| --- | --- | --- |
+| 手工开发路由矩阵 |16题，16/16先本地；最大补检1次；误触发Web1、漏触发Web1；隐私/基线禁止外访组违规0 | 注入固定本地检索与空Web边界；已用于开发，不能外推为一般精确率 |
+| 误触发例 | 同义表达的正文词面覆盖不足 | 保守词面规则会造成多余搜索 |
+| 漏触发例 | 片段有问题关键词，但只谈拟做评估、没有结果 | 词面充分不等于语义充分；保留失败，不改标签凑分 |
+| 提供商故障矩阵 |7/7安全部分失败：429、超时、403阻断、网络错误、超大响应、私网重定向、坏JSON；每例≤3 mock HTTP，另一家保留1候选 | 实际MockTransport和解析器；不代表公网可用率；另有联合工作流/恶意PDF/跨域/解析终止回归 |
+| 真实免费API连通 | OpenAlex HTTP200/8候选/6961.120ms；S2 HTTP200/8候选/5814.102ms；各1 HTTP尝试 | 仅固定公开问题；无库内片段、历史或PDF；不是相关性或完整最新覆盖评测 |
+| 临时证据 | 全文明确CC许可+原文锚点；摘要/仅元数据页码null；元数据不进事实模型；本轮不导入 | 未认证任意PDF解析质量或外部许可真实性；未知许可拒绝自动取全文 |
+| 本地DeepEval | Faithfulness：支持95%控制1.0/38851.476ms；不支持99%控制0.0/30999.156ms | Qwen3:4b-instruct，DeepEval4.2.8，温度0，阈值0.5，默认提示，每项60s；仅两个固定合成控制，不是生产生成回答或总体质量 |
+| Judge子调用数/tokens/完整资源成本 | null/null/未测；框架evaluation_cost0 | 不把框架0当算力/电费0；生成0次，付费云模型0次；学术API配额/账单未测 |
+| 首轮完整回归 |994passed、1failed、14warnings、471.90s | 唯一失败是旧Pattern空库提示断言；已改为验证证据不足、Web路线和单次补检，失败日志保留 |
+| 审查修复后的定向回归 |52passed/12.01s；前端35passed/8.53s | 独立复核4问题均先复现后修复：UI隐私重置、已保留版本丢失、arXiv版本绕过、S2年份参数 |
+
+配置：最多2提供商、8总HTTP尝试、每家1次重试、每家8候选、元数据512KiB、请求10s、Web总45s；最多1 PDF/3MiB/50页/2同域重定向、原生解析15s单进程槽；本地与Web共用8192字节保守token单位上下文预算。RRF分值不作为概率。显式版本匹配和未知许可规则偏保守，可能漏掉合法副本，不假装同一版本。
+
+原始记录：忽略目录 `data/evaluation/m5_20261025/summary.json`（初始矩阵+两家实际连通）、`final_verified_matrix.json`（修复后配置/流水线及fixture SHA-256）、`judge_smoke.json`。完整说明见[m5_development.md](m5_development.md)。首次及修复后构建均遇既有Next依赖安全升级提示，重试构建通过；建议独立升级依赖，本轮没有升级或合并。最终全量/远端CI结果在实际完成后追加。
+
+**M5 最终验证：**完整后端 **1013passed、14warnings、507.77s**；完整前端 **35passed、8.53s**，lint和重试生产构建通过；Ruff check/format174文件及整条分支36文件隐私检查通过，最终矩阵App源码指纹与交付代码相同。浏览器Edge桌面1280×720/移动390×844使用公开API响应夹具确认Web证据标签、无假页码和刷新后的隐私保持；不是实际检索收益。实现/报告提交 `c2f0bcd1c854daa12ce6acad52c4abe390d3e6a0` 的CI40185063560已通过Backend Tests和Frontend Build；最后文档提交的exact-head CI在依赖Draft PR56记录。未合并；独立Gold/人审及Web回答质量仍未认证。

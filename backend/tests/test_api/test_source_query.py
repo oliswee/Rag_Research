@@ -90,15 +90,11 @@ async def test_default_uploaded_source_request_and_followup_execute_hybrid(
             return [(chunk.id, 0.9)]
 
     monkeypatch.setattr("app.workflows.source_query.SourceVectorIndex", Index)
-    monkeypatch.setattr(
-        "app.routers.query.QueryWorkflow",
-        lambda **kwargs: pytest.fail("Source corpus bypassed by legacy default"),
-    )
     response = await submit_query(
         QueryRequest(query="retrieval latency"), async_db_session
     )
     assert QueryRequest(query="q").retrieval_mode == "hybrid"
-    assert response["retrieval_mode"] == "hybrid" and response["query_count"] == 1
+    assert response["retrieval_mode"] == "hybrid" and response["query_count"] <= 3
     record = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
     assert all(stage in record["rankings"] for stage in ["bm25", "dense", "rrf"])
     assert len(record["retrieval_branches"]) == 2
@@ -195,7 +191,7 @@ async def test_source_query_and_followup_use_local_evidence(
     assert trace["rankings"]["bm25"][0]["child_id"] == first["evidence"][0]["chunk_id"]
     assert trace["prompt_evidence_ids"] == []
     assert trace["returned_evidence_ids"] == [first["evidence"][0]["chunk_id"]]
-    assert trace["web_decision"] == "not_implemented"
+    assert trace["web_decision"] == "answer_local"
     second = await follow_up_query(
         FollowUpRequest(query="What improves?", session_id=first["session_id"]),
         async_db_session,
@@ -276,7 +272,7 @@ async def test_source_query_records_missing_session_failure(
 @pytest.mark.asyncio
 async def test_query_records_database_probe_failure(monkeypatch, tmp_path):
     class BrokenDB:
-        async def execute(self, _statement):
+        async def stream(self, _statement):
             raise RuntimeError("private database detail")
 
     trace_path = tmp_path / "trace.jsonl"

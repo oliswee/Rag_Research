@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     reranker_timeout_seconds: float = Field(15, gt=0, le=15)
     context_token_budget: int = Field(8192, ge=128, le=16384)
     context_parent_budget: int = Field(2048, ge=128, le=4096)
+    web_max_attempts: int = Field(8, ge=1, le=8)
+    web_timeout_seconds: float = Field(10, gt=0, le=10)
+    web_deadline_seconds: float = Field(45, gt=0, le=45)
+    web_metadata_bytes: int = Field(524288, ge=1024, le=524288)
+    web_candidates_per_provider: int = Field(8, ge=1, le=8)
+    web_pdf_bytes: int = Field(3145728, ge=1024, le=3145728)
+    web_pdf_pages: int = Field(50, ge=1, le=50)
+    web_parser_timeout_seconds: float = Field(15, gt=0, le=15)
 
     # Qdrant
     qdrant_host: str = "localhost"

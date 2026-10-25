@@ -94,6 +94,17 @@ def configuration_snapshot() -> tuple[str, dict]:
             "budget_units": "utf8_bytes_conservative_bpe_bound",
             "runtime_weights": "cached_only_cpu",
         },
+        "web_routing": {
+            "policy": "deterministic_m5_v1",
+            "max_attempts": settings.web_max_attempts,
+            "timeout_seconds": settings.web_timeout_seconds,
+            "deadline_seconds": settings.web_deadline_seconds,
+            "metadata_bytes": settings.web_metadata_bytes,
+            "candidates_per_provider": settings.web_candidates_per_provider,
+            "pdf_bytes": settings.web_pdf_bytes,
+            "pdf_pages": settings.web_pdf_pages,
+            "parser_timeout_seconds": settings.web_parser_timeout_seconds,
+        },
     }
     return "sha256:" + digest(manifest), manifest
 

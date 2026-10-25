@@ -163,14 +163,11 @@ async def test_source_query_and_followup_use_local_evidence(
 async def test_query_uses_rewritten_search_but_answers_original_question(
     async_db_session, monkeypatch
 ):
-    async def fake_rewrite(question, history, enabled, trace=None):
-        assert trace is not None
-        assert enabled
-        assert question == "What about its latency?"
-        return "active retrieval latency", "applied"
+    async def fake_rewrite(*args, **kwargs):
+        pytest.fail("Explicit baseline must retain literal Q0")
 
     async def fake_retrieve(db, query, *args, **kwargs):
-        if query != "active retrieval latency":
+        if query != "What about its latency?":
             return [], "bm25"
         return [
             {
@@ -189,7 +186,9 @@ async def test_query_uses_rewritten_search_but_answers_original_question(
         assert trace is not None
         return f"Answer to {question}: {evidence[0]['excerpt']}", evidence
 
-    monkeypatch.setattr("app.routers.query.rewrite_for_retrieval", fake_rewrite)
+    monkeypatch.setattr(
+        "app.workflows.query_rewrite.rewrite_for_retrieval", fake_rewrite
+    )
     monkeypatch.setattr("app.routers.query.retrieve", fake_retrieve)
     monkeypatch.setattr("app.routers.query.answer_from_evidence", fake_answer)
 
@@ -205,8 +204,8 @@ async def test_query_uses_rewritten_search_but_answers_original_question(
     assert response["response"] == (
         "Answer to What about its latency?: Active retrieval reduced latency."
     )
-    assert response["retrieval_query"] == "active retrieval latency"
-    assert response["rewrite_status"] == "applied"
+    assert response["retrieval_query"] == "What about its latency?"
+    assert response["rewrite_status"] == "disabled"
 
 
 @pytest.mark.asyncio

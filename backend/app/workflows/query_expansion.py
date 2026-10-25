@@ -69,6 +69,11 @@ _IDENTIFIER = re.compile(
     r"10\.\d{4,9}/\S+|\b(?:arxiv[:\s]|paper[_ ]?id\s*:)|\b\d{4}\.\d{4,5}(?:v\d+)?\b",
     re.I,
 )
+_NUMERIC_CONSTRAINT = re.compile(
+    r"[<>=≤≥%]|\d+\.\d+|\b(?:before|after|above|below|under|over|between|"
+    r"at least|at most)\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +92,16 @@ class QueryPlan:
     rejected_count: int = 0
 
 
+def numeric_constraint(text: str) -> bool:
+    numbers = re.findall(r"\d+(?:\.\d+)?", text)
+    # A single calendar year can be retained literally. Other numeric roles,
+    # units and ranges cannot safely be validated by unordered digit sets.
+    return bool(_NUMERIC_CONSTRAINT.search(text)) or (
+        bool(numbers)
+        and (len(numbers) != 1 or not re.fullmatch(r"(?:18|19|20)\d{2}", numbers[0]))
+    )
+
+
 def content_tokens(text: str) -> set[str]:
     return set(re.findall(r"[\w-]+", text.casefold())) - _STOP
 
@@ -96,7 +111,11 @@ def safe_variant(
 ) -> bool:
     if not isinstance(candidate, str) or not candidate.strip() or len(candidate) > 500:
         return False
-    if _CONSTRAINT.search(candidate) or _IDENTIFIER.search(candidate):
+    if (
+        _CONSTRAINT.search(candidate)
+        or _IDENTIFIER.search(candidate)
+        or numeric_constraint(candidate)
+    ):
         return False
     if not content_tokens(question) <= content_tokens(candidate):
         return False
@@ -134,7 +153,7 @@ async def expand_queries(
         return finish("disabled", "disabled")
     if _IDENTIFIER.search(question):
         return finish("disabled", "exact_identifier")
-    if _CONSTRAINT.search(question):
+    if _CONSTRAINT.search(question) or numeric_constraint(question):
         return finish("disabled", "constraint_guard")
     from app.services.llm_client import LLMClient, llm_available
 

@@ -53,6 +53,7 @@ async def retrieve(
     queries: list[RetrievalQuery] | None = None,
     per_query_k: int | None = None,
     rrf_k: int | None = None,
+    vector_reader_factory=None,
 ) -> tuple[list[dict], str]:
     generations = list(
         (
@@ -92,8 +93,8 @@ async def retrieve(
         scope=scope,
         mode=mode,
         lexical_search=keyword_search,
-        vector_index=vector_index,
-        index_factory=SourceVectorIndex,
+        vector_index=vector_index if vector_reader_factory is None else None,
+        index_factory=vector_reader_factory or SourceVectorIndex,
         per_query_k=per_query_k or settings.retrieval_per_query_k,
         timeout=settings.retrieval_branch_timeout_seconds,
         concurrency=settings.retrieval_concurrency,
@@ -196,7 +197,7 @@ async def retrieve(
                     {"stage": stage, "error_type": branch.error_type}
                 )
     fusion_k = rrf_k or settings.retrieval_rrf_k
-    if not 1 <= fusion_k <= 200 or not 1 <= limit <= 100:
+    if not 1 <= fusion_k <= 60 or not 1 <= limit <= 10:
         raise ValueError("Invalid fusion budget")
     ids = rrf_merge(rankings, k=fusion_k, limit=limit)
     dense = any(b.ranked for b in branches if b.retriever == "dense")

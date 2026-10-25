@@ -105,7 +105,7 @@ async def test_partial_failure_and_timeout_do_not_mutate_trace_later(monkeypatch
         lexical_search=lexical,
         vector_index=Index(),
         timeout=0.02,
-        concurrency=6,
+        concurrency=3,
         per_query_k=30,
     )
     assert sum(r.status == "timeout" for r in results) == 3
@@ -155,4 +155,76 @@ async def test_query_dedup_and_scope_validation_before_branch_work(monkeypatch):
             per_query_k=30,
             timeout=1,
             concurrency=3,
+        )
+
+
+@pytest.mark.asyncio
+async def test_sqlite_execution_timeout_preserves_session_and_corpus(async_db_session):
+    from sqlalchemy import text
+
+    from app.services.retrieval_branches import collect_rankings
+
+    connection = await async_db_session.connection()
+    raw = await connection.get_raw_connection()
+    await raw.driver_connection.create_function(
+        "slow_test", 0, lambda: (time.sleep(0.08), 1)[1]
+    )
+
+    async def lexical(db, *args, **kwargs):
+        await db.execute(text("SELECT slow_test()"))
+        return [("result", -1)]
+
+    results = await collect_rankings(
+        async_db_session,
+        plans()[:1],
+        active_versions={},
+        scope={},
+        mode="bm25",
+        lexical_search=lexical,
+        timeout=0.02,
+    )
+    assert results[0].status == "timeout"
+    assert (
+        await async_db_session.execute(text("SELECT count(*) FROM papers"))
+    ).scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_cpu_read_deadline_restores_connection_before_rollback(async_db_session):
+    from sqlalchemy import text
+
+    from app.services.sqlite_deadline import sqlite_read_deadline
+
+    async def expensive():
+        return await async_db_session.execute(
+            text(
+                "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL "
+                "SELECT x+1 FROM n WHERE x<10000000) SELECT sum(x) FROM n"
+            )
+        )
+
+    with pytest.raises(TimeoutError):
+        await sqlite_read_deadline(async_db_session, expensive, 0.005)
+    await async_db_session.rollback()
+    assert (
+        await async_db_session.execute(text("SELECT count(*) FROM papers"))
+    ).scalar_one() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "budget", [{"per_query_k": 31}, {"timeout": 16}, {"concurrency": 4}]
+)
+async def test_branch_budgets_cannot_exceed_approved_ceilings(budget):
+    from app.services.retrieval_branches import collect_rankings
+
+    with pytest.raises(ValueError):
+        await collect_rankings(
+            None,
+            plans()[:1],
+            active_versions={},
+            scope={},
+            mode="bm25",
+            lexical_search=AsyncMock(return_value=[]),
+            **budget,
         )

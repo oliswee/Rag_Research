@@ -20,8 +20,7 @@ from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
 from app.services.trace_versions import corpus_version
 from app.workflows import QueryInput, QueryWorkflow
-from app.workflows.query_expansion import expand_queries
-from app.workflows.query_rewrite import rewrite_for_retrieval
+from app.workflows.query_expansion import QueryPlan, RetrievalQuery, expand_queries
 from app.workflows.source_query import answer_from_evidence, has_source_chunks, retrieve
 
 logger = logging.getLogger(__name__)
@@ -162,9 +161,13 @@ async def _submit_query_impl(
                 retrieval_query = request.query
                 rewrite_status = query_plan.status
             else:
-                retrieval_query, rewrite_status = await rewrite_for_retrieval(
-                    request.query, session.history, request.rewrite_query, trace=trace
+                query_plan = QueryPlan(
+                    [RetrievalQuery("Q0", "original", request.query, request.query)],
+                    "disabled",
+                    "explicit_baseline",
                 )
+                trace.record_query_plan(query_plan)
+                retrieval_query, rewrite_status = request.query, "disabled"
             trace.record_query(retrieval_query, rewrite_status)
             trace.record["stage_ms"]["rewrite"] = round(
                 (time.perf_counter() - rewrite_start) * 1000, 3

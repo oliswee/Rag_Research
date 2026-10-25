@@ -154,6 +154,25 @@ async def test_year_is_retained_and_new_year_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "question,candidate",
+    [
+        ("retrieval latency >10 ms", "retrieval latency <10 ms performance"),
+        ("retrieval latency 1.5 ms", "retrieval latency 5.1 ms performance"),
+        (
+            "retrieval latency 10 ms throughput 20",
+            "retrieval latency 20 ms throughput 10 performance",
+        ),
+    ],
+)
+async def test_numeric_expressions_are_not_rewritten(monkeypatch, question, candidate):
+    from app.workflows.query_expansion import expand_queries
+
+    install_llm(monkeypatch, {"query": candidate, "keywords_query": candidate})
+    assert [q.text for q in (await expand_queries(question, [])).queries] == [question]
+
+
+@pytest.mark.asyncio
 async def test_missing_provider_and_disabled_plan_do_not_call_model(monkeypatch):
     from app.workflows.query_expansion import expand_queries
 

@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 
 from app.services.source_index import SourceVectorIndex
+from app.services.sqlite_deadline import sqlite_read_deadline
 from app.workflows.query_expansion import RetrievalQuery, content_tokens
 
 
@@ -40,11 +41,7 @@ async def collect_rankings(
         or queries[0].text != queries[0].parent_question
     ):
         raise ValueError("Original query Q0 is required")
-    if (
-        not 1 <= per_query_k <= 100
-        or not 1 <= concurrency <= 6
-        or not 0 < timeout <= 60
-    ):
+    if not 1 <= per_query_k <= 30 or not 1 <= concurrency <= 3 or not 0 < timeout <= 15:
         raise ValueError("Invalid retrieval budget")
     unique, seen, identifiers = [], set(), set()
     for query in queries:
@@ -90,14 +87,26 @@ async def collect_rankings(
 
     async def run(query, position, retriever):
         started = time.perf_counter()
+        admitted = locked = False
         try:
-            async with asyncio.timeout(timeout), semaphore:
+            # Async cancellation is safe while queued, never during SQLite work.
+            async with asyncio.timeout(timeout):
+                await semaphore.acquire()
+                admitted = True
                 if retriever == "bm25":
-                    async with session_lock:
-                        ranked = await lexical_search(
-                            db, query.text, **scope, limit=per_query_k, with_scores=True
-                        )
-                else:
+                    await session_lock.acquire()
+                    locked = True
+            remaining = timeout - (time.perf_counter() - started)
+            if retriever == "bm25":
+                ranked = await sqlite_read_deadline(
+                    db,
+                    lambda: lexical_search(
+                        db, query.text, **scope, limit=per_query_k, with_scores=True
+                    ),
+                    remaining,
+                )
+            else:
+                async with asyncio.timeout(remaining):
                     vectors = await asyncio.shield(embeddings)
                     if len(vectors) != len(unique):
                         raise ValueError("Embedding count mismatch")
@@ -112,6 +121,11 @@ async def collect_rankings(
                 0,
                 type(exc).__name__,
             )
+        finally:
+            if locked:
+                session_lock.release()
+            if admitted:
+                semaphore.release()
         result.duration_ms = (time.perf_counter() - started) * 1000
         return result
 

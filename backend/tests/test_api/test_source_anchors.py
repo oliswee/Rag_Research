@@ -131,3 +131,38 @@ async def test_page_number_retains_source_anchor_with_nonbody_role(
     assert response.json()["excerpt"] == "1"
     assert response.json()["evidence_role"] == "page_marker"
     assert response.json()["source_spans"][0]["page"] == 1
+
+
+@pytest.mark.asyncio
+async def test_parent_corruption_keeps_valid_child_only_with_explicit_fallback(
+    async_db_session, source_client
+):
+    from app.services.source_anchors import resolve_child
+
+    pdf = fitz.open()
+    pdf.new_page().insert_text((50, 80), "Latency remains 1.5 milliseconds.")
+    payload = pdf.tobytes()
+    pdf.close()
+    paper = Paper(title="Parent fallback", type=PaperType.research_paper)
+    async_db_session.add(paper)
+    await async_db_session.flush()
+    build = await stage_generation(
+        async_db_session, paper, PDFParserService().parse(payload)
+    )
+    await async_db_session.commit()
+    build.parents[0].raw_text = "Foreign parent content."
+    await async_db_session.commit()
+    child = build.children[0]
+    resolved = await resolve_child(async_db_session, child, allow_parent_failure=True)
+    assert resolved["excerpt"] == "Latency remains 1.5 milliseconds."
+    assert resolved["source_spans"] == child.source_spans
+    assert resolved["parent"] is None
+    assert resolved["parent_status"] == "unavailable"
+    citation = await source_client.get(resolved["citation_url"])
+    assert citation.status_code == 200
+    assert citation.json()["parent"] is None
+    with pytest.raises(ValueError):
+        await resolve_child(async_db_session, child)
+    child.text = "Tampered child."
+    with pytest.raises(ValueError):
+        await resolve_child(async_db_session, child, allow_parent_failure=True)

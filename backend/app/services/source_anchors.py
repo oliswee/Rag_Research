@@ -57,7 +57,9 @@ def original_text(document: SourceDocument, spans: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-async def resolve_child(db: AsyncSession, child: PaperChunk) -> dict:
+async def resolve_child(
+    db: AsyncSession, child: PaperChunk, *, allow_parent_failure: bool = False
+) -> dict:
     result = {
         "chunk_id": child.id,
         "paper_id": child.paper_id,
@@ -75,6 +77,7 @@ async def resolve_child(db: AsyncSession, child: PaperChunk) -> dict:
         "document_version": None,
         "parser_version": None,
         "status": "legacy",
+        "section": child.section,
     }
     if child.index_version == "legacy":
         return result
@@ -84,21 +87,29 @@ async def resolve_child(db: AsyncSession, child: PaperChunk) -> dict:
     if (
         document is None
         or generation is None
-        or parent is None
         or document.paper_id != child.paper_id
         or generation.document_id != document.id
         or generation.paper_id != child.paper_id
-        or parent.document_id != document.id
-        or parent.generation_id != generation.index_version
     ):
         raise ValueError("Citation provenance integrity check failed")
     validate_document(document)
     if (
         original_text(document, child.source_spans or []) != child.text
         or hashlib.sha256(child.text.encode()).hexdigest() != child.checksum
-        or original_text(document, parent.raw_spans) != parent.raw_text
     ):
         raise ValueError("Original citation text integrity check failed")
+    parent_valid = bool(
+        parent is not None
+        and parent.document_id == document.id
+        and parent.generation_id == generation.index_version
+    )
+    if parent_valid:
+        try:
+            parent_valid = original_text(document, parent.raw_spans) == parent.raw_text
+        except (KeyError, ValueError, TypeError):
+            parent_valid = False
+    if not parent_valid and not allow_parent_failure:
+        raise ValueError("Parent source integrity check failed")
     result.update(
         {
             "source_spans": child.source_spans,
@@ -108,7 +119,8 @@ async def resolve_child(db: AsyncSession, child: PaperChunk) -> dict:
             "cleaner_version": generation.cleaner_version,
             "chunker_version": generation.chunker_version,
             "embedding_model_id": generation.embedding_model_id,
-            "section_id": parent.section_id,
+            "section_id": parent.section_id if parent_valid else None,
+            "parent_status": "validated" if parent_valid else "unavailable",
             "source_origin": document.source_origin,
             "original_pdf_url": f"/api/sources/documents/{document.id}/pdf"
             if document.original_pdf is not None
@@ -119,7 +131,9 @@ async def resolve_child(db: AsyncSession, child: PaperChunk) -> dict:
                 "source_spans": parent.raw_spans,
                 "page_start": parent.page_start,
                 "page_end": parent.page_end,
-            },
+            }
+            if parent_valid
+            else None,
         }
     )
     flags = {

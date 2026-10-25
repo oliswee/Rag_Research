@@ -13,6 +13,7 @@ from app.config import settings
 from app.models import (
     Paper,
     PaperChunk,
+    PaperIdentifier,
     Pattern,
     SourceDocument,
     SourceIndexGeneration,
@@ -83,6 +84,16 @@ def configuration_snapshot() -> tuple[str, dict]:
             "final_k": 10,
             "fusion": "single_layer_rrf",
         },
+        "ranking_packing": {
+            "model": settings.reranker_model,
+            "candidate_limit": settings.reranker_candidate_limit,
+            "selected_limit": settings.reranker_selected_limit,
+            "timeout_seconds": settings.reranker_timeout_seconds,
+            "context_budget": settings.context_token_budget,
+            "parent_budget": settings.context_parent_budget,
+            "budget_units": "utf8_bytes_conservative_bpe_bound",
+            "runtime_weights": "cached_only_cpu",
+        },
     }
     return "sha256:" + digest(manifest), manifest
 
@@ -95,6 +106,14 @@ async def corpus_version(db: AsyncSession) -> str:
     """
     fingerprint = hashlib.sha256()
     queries = (
+        (
+            "paper_identifiers",
+            select(
+                PaperIdentifier.paper_id, PaperIdentifier.kind, PaperIdentifier.value
+            ).order_by(
+                PaperIdentifier.paper_id, PaperIdentifier.kind, PaperIdentifier.value
+            ),
+        ),
         (
             "papers",
             select(

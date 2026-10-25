@@ -32,7 +32,8 @@ def parse_policy(request) -> QueryPolicy:
     )
     local = request.local_only or bool(
         re.search(
-            r"仅.{0,4}本地|只(?:用|查|看|使用).{0,8}本地|only\s+(?:use\s+)?local|do not (?:search|use) (?:the )?(?:web|internet)",
+            r"仅.{0,4}本地|只(?:用|查|看|使用).{0,8}本地|only\s+(?:use\s+)?local"
+            r"|do not (?:search|use) (?:the )?(?:web|internet)",
             text,
         )
     )
@@ -83,7 +84,7 @@ class RoutingDecision:
 
 
 _STOP = set(
-    "what which how does do is are the a an of for in to and or with explain compare methods results papers paper use only local uploaded latest find on".split()
+    ["what", "which", "how", "does", "do", "is", "are", "the", "a", "an", "of", "for", "in", "to", "and", "or", "with", "explain", "compare", "methods", "results", "papers", "paper", "use", "only", "local", "uploaded", "latest", "find", "on"]
 )
 
 

@@ -1,5 +1,6 @@
 """Application configuration using Pydantic Settings."""
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -71,6 +72,12 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./data/research.db"
     retrieval_trace_path: str = "data/traces/retrieval_trace.jsonl"
+    query_variant_limit: int = Field(3, ge=1, le=3)
+    query_rewrite_timeout_seconds: float = Field(20, gt=0, le=20)
+    retrieval_branch_timeout_seconds: float = Field(15, gt=0, le=15)
+    retrieval_concurrency: int = Field(3, ge=1, le=3)
+    retrieval_per_query_k: int = Field(30, ge=1, le=30)
+    retrieval_rrf_k: int = Field(60, ge=1, le=60)
 
     # Qdrant
     qdrant_host: str = "localhost"

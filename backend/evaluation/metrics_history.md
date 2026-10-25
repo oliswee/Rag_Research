@@ -142,3 +142,39 @@ parser / cleaner / chunker / embedding / generator / judge 版本：
 已修复：年份误判标题、跨页章节回退、彩色行内文字顺序、窄栏顺序、页码误入正文。独立代码审查又复现相邻单词粘连和下边缘表格数字误排除，均有RED→GREEN回归。复杂版面与附录误标仍在问题记录中，M8正式人审不提前打勾。
 
 详细报告：[m2_parser_cleaner_audit.md](m2_parser_cleaner_audit.md)。原始材料：`data/parsing/m2_human_review_20261024/codex_review/`（含原图、初始决定、六类记录、postfix对照、source hashes）；本机备份及重建结果：`data/evaluation/m2_v2_live_20261024/`。所有原文和联系信息留在Git忽略目录。
+
+## 8. M3 Multi-query Hybrid 开发对照：2026-10-24
+
+执行代码：`e89444f` 加当时未提交的审查修复，实际 pipeline/config 摘要保存在逐阶段 Trace；不倒填后续提交号。数据沿用冻结 QASPER dev0.3 的40篇/1,892片段/40题，32道有公开 Evidence、8道限篇无答案；仅32题计相关性均值。数据字节校验值同 qasper_dev_config.yaml。继续使用原提取文本 Child 保证标签可比性，真实库结构化 Child 另做连通验证；都不是 M8 Gold。
+
+BGE small en v1.5 /384维/cosine；每路K30、最终K10、RRF60、最多3Query/6列表、并发3、改写20s一次尝试、分支15s。索引 scope `benchmark:c0d182c5013c0edd`；Embedding 权重 revision 未知，模型ID/集合命名/维度检查继续生效。规划及Judge用本地 qwen3:4b-instruct；观察到的模型digest见详细报告。
+
+| 实际模式 | Recall@10 / Hit@10 | MRR@10 | nDCG@10 | 检索p50 ms | 检索p95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| BM25 | 0.78125 | 0.348996 | 0.447931 | 11.53 | 13.11 |
+| Dense | 0.75000 | 0.338690 | 0.437090 | 3895.26 | 4364.92 |
+| Single-query Hybrid | 0.78125 | 0.384462 | 0.477571 | 4366.75 | 4479.28 |
+| Multi-query Hybrid | 0.78125 | 0.368837 | 0.466038 | 3898.59 | 4439.68 |
+
+**没有测得默认参数的检索质量提升：**Multi-query 相对 Single-query 的 Recall差值0、MRR差值−0.015625，Recall逐题赢/平/输0/32/0。按照v6保留主线功能及安全回退，不能据此宣称显著收益。耗时含应用检索/Trace，不含缓存的规划；模式顺序运行且机器有开发负载，不能从 p50 差异推导Multi-query更快。
+
+规划：40题中35题只保留Q0、4题生成2Query、1题生成3Query；6题直接使用约束保护，29题没有可接受的有效变体，拒绝62个候选。真实规划成功调用34次、输入4,420tokens、输出884tokens、规划总耗时91,367.83ms。严格内容词保留带来较多误拒，未用手工构造变体替换这些实际结果。最终数字条件修复后复核40份规划，变体变化0；保留原生成指纹/Trace/耗时，另记最终验证器版本。
+
+参数重放：对已保存、已验证的独立排名列表截断/重算RRF，无新增Embedding或检索调用，也没有可报告的检索耗时：
+
+| 重放配置 | Recall@10 | MRR@10 | nDCG@10 | p50 / p95 |
+| --- | ---: | ---: | ---: | --- |
+| 每路前10 / RRF60 | 0.81250 | 0.372346 | 0.475275 | null |
+| 每路前30 / RRF20 | 0.78125 | 0.368093 | 0.465323 | null |
+
+K10较高仅是同开发集的探索结果；默认仍K30/RRF60，未完成独立参数选型或显著性检验。中止的K10重新检索尝试单独保留，不用于上述分数。
+
+本地DeepEval：4.2.8 / Contextual Relevancy /前2题 /每题1条context /temperature0 /threshold0.5 /默认提示。两次实际评分0.0、1.0，耗时43,766.063ms、17,407.344ms；均evaluated，无人工校准，不汇总成整体准确率。Judge实际请求次数/tokens为null；框架cost=0不等于完整资源成本。没有生成回答、没有付费云端调用。
+
+真实库：固定开发用3Query实测6分支，10条当前来源均带可解析原文跨度和发布版本，5,199.803ms、0次LLM调用。仅连通/锚点验证，不是模型扩展质量或p95。工程审查的5项P2均复现并修复；SQLite会话超时、数字条件/原问保留、客户端生命周期及预算上限均有回归。第一轮完整测试877通过/6失败（105.48s），源于旧Pattern默认断言；更新集成夹具后43通过（34.45s）。后续完整891通过（141.40s）；新增参数重放17项评测回归通过（0.77s），最终交付全套结果另追加。
+
+前端31项测试通过；构建首次因现有Next.js依赖安全升级提示退出，重试完成并保留提示，M3未改依赖。正式语义/人工PDF质量、完整回答质量、资源金额成本仍未测。
+
+原始产物：`data/evaluation/m3_verified_20261024/summary.json`、四个实际模式报告及Trace、`query_plans.jsonl`、`plan_revalidation.json`、两个参数重放报告。初始Ollama未启动时25条失败规划、后续中断产物均保留；实际库检查位于 `data/evaluation/m3_library_20261024/`。详细说明：[m3_development.md](m3_development.md)。
+
+**2026-10-25最终交付验证：**后续完整运行出现891通过/1失败（274.05s），复现异步SQLite interrupt与语句收尾/回滚竞争；移除额外中断计时器，保留原生progress/busy期限。CPU读超时后回滚/继续读有回归，26项定向检查通过（4.77s）。最终完整后端 **893 passed、17 warnings、209.98s**；Ruff check/format149文件通过。完整日志保留在忽略目录 `output/m3_release_tests.log`；失败轮次不替换为成功记录。

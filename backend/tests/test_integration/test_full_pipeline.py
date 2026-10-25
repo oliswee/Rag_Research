@@ -86,9 +86,18 @@ class TestFullPipeline:
         query_data = query_response.json()
 
         assert query_data["session_id"] is not None
-        assert "memory consolidation" in query_data["response"].lower()
-        assert query_data["confidence"] == "high"
-        assert len(query_data["follow_up_suggestions"]) > 0
+        assert query_data["retrieval_mode"] in {"hybrid", "bm25_fallback"}
+        assert query_data["confidence"] == "medium"
+        assert query_data["evidence"]
+        assert (
+            "memory consolidation"
+            in " ".join(
+                " ".join(source["excerpt"].split()) for source in query_data["evidence"]
+            ).lower()
+        )
+        assert (
+            query_data["sources"] == []
+        )  # Source citations replace Pattern citations.
 
         session_id = query_data["session_id"]
 

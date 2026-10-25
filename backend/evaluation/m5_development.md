@@ -56,3 +56,11 @@ These two automatic judgements distinguish this specific number change only. No 
 - Final full suite, exact-head CI and privacy results are appended below after execution. No merge.
 
 Browser check: production frontend in Edge at desktop1280×720 and mobile390×844 with fixed public API response fixtures (real backend was offline). Verified Web abstract/licence/retrieval date display, metadata disclosure and privacy checkboxes retained after reload. Screenshots and route fixture stay under ignored `output/playwright/`. This is a UI rendering check, not a live end-to-end retrieval experiment. Initial default Chrome launch failed because Chrome was absent; the installed Edge succeeded. The existing compact mobile navigation extends near the viewport edge; the new controls wrap without horizontal overflow.
+
+## Final local verification and delivery
+
+- Complete backend **1013passed,14warnings,507.77s** (`output/m5-backend-final.log`). Warnings are existing422-deprecation/AsyncMock warnings; no test was skipped to obtain this result.
+- Frontend **35passed,8.53s**; ESLint passed; production build passed on retry with the existing Next security-upgrade notice. Ruff check/format **174files** passed; git diff whitespace check passed.
+- Whole-branch privacy gate **36files** passed; no configured keys/contact emails/raw data in the branch. The first gate invocation used system Python without pydantic-settings and failed to import; reran with the backend venv and passed before pushing. The measured final matrix App fingerprint equals the delivered App fingerprint.
+- Four implementation/report commits pushed; dependent [Draft PR56](https://github.com/oliswee/Rag_Research/pull/56) targets M4 branch. Implementation/report head `c2f0bcd1c854daa12ce6acad52c4abe390d3e6a0` passed both exact-head CI jobs in [run40185063560](https://github.com/oliswee/Rag_Research/actions/runs/40185063560). Final documentation-only commit CI is recorded in PR56 after execution. No merge.
+- M5 engineering requirements are implemented and regression-verified. Independent Gold, semantic routing calibration, broad PDF/manual audit and measured real Web-answer improvement remain future M8 evaluation; expanded answer/comparison grounding remains M6.

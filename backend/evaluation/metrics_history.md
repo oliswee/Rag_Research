@@ -223,3 +223,5 @@ QASPER父段是明确标注的同章节相邻3个公开文本Chunk适配，不�
 配置：最多2提供商、8总HTTP尝试、每家1次重试、每家8候选、元数据512KiB、请求10s、Web总45s；最多1 PDF/3MiB/50页/2同域重定向、原生解析15s单进程槽；本地与Web共用8192字节保守token单位上下文预算。RRF分值不作为概率。显式版本匹配和未知许可规则偏保守，可能漏掉合法副本，不假装同一版本。
 
 原始记录：忽略目录 `data/evaluation/m5_20261025/summary.json`（初始矩阵+两家实际连通）、`final_verified_matrix.json`（修复后配置/流水线及fixture SHA-256）、`judge_smoke.json`。完整说明见[m5_development.md](m5_development.md)。首次及修复后构建均遇既有Next依赖安全升级提示，重试构建通过；建议独立升级依赖，本轮没有升级或合并。最终全量/远端CI结果在实际完成后追加。
+
+**M5 最终验证：**完整后端 **1013passed、14warnings、507.77s**；完整前端 **35passed、8.53s**，lint和重试生产构建通过；Ruff check/format174文件及整条分支36文件隐私检查通过，最终矩阵App源码指纹与交付代码相同。浏览器Edge桌面1280×720/移动390×844使用公开API响应夹具确认Web证据标签、无假页码和刷新后的隐私保持；不是实际检索收益。实现/报告提交 `c2f0bcd1c854daa12ce6acad52c4abe390d3e6a0` 的CI40185063560已通过Backend Tests和Frontend Build；最后文档提交的exact-head CI在依赖Draft PR56记录。未合并；独立Gold/人审及Web回答质量仍未认证。

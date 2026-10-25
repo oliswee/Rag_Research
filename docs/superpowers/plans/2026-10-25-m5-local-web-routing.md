@@ -77,10 +77,10 @@
 
 **Files:** Update existing query page/types/API/response display and relevant React tests; create `docs/local_web_routing.md`, `backend/evaluation/m5_development.md` and deterministic development runner; append separate `metrics_history.md`.
 
-- [ ] Read installed Next client documentation and React/UI skills; add local-only/only-uploaded/latest controls, origin/level/licence/date/trigger display and explicit scope reset values. Never display implementation secrets or pass untrusted URLs to raw HTML.
-- [ ] RED/GREEN UI rendering/option tests. Run deterministic route/fault matrix and record wrong/missed Web triggers against labelled development fixtures (not Gold). Optional bounded local DeepEval and two free-provider connectivity checks use only fixed public questions; failures remain not_evaluated/no real Web-gain claim.
-- [ ] One fresh whole-branch reviewer, one RED/GREEN fix pass for important findings, final full backend/frontend/lint/build/privacy verification. Record failures honestly, including any Windows fixture-startup errors.
-- [ ] Commit/push own feature branch, dependent Draft PR against M4, verify exact-head CI, update issue55 and milestone records. Notify user M5 engineering completion; no merge.
+- [x] Read installed Next client documentation and React/UI skills; add local-only/only-uploaded/latest controls, origin/level/licence/date/trigger display and explicit scope reset values. Never display implementation secrets or pass untrusted URLs to raw HTML.
+- [x] RED/GREEN UI rendering/option tests. Run deterministic route/fault matrix and record wrong/missed Web triggers against labelled development fixtures (not Gold). Optional bounded local DeepEval and two free-provider connectivity checks use only fixed public questions; failures remain not_evaluated/no real Web-gain claim.
+- [x] One fresh whole-branch reviewer, one RED/GREEN fix pass for important findings, final full backend/frontend/lint/build/privacy verification. Record failures honestly, including any Windows fixture-startup errors.
+- [x] Commit/push own feature branch, dependent Draft PR against M4, verify exact-head CI, update issue55 and milestone records. Notify user M5 engineering completion; no merge.
 
 ## Execution decisions
 

@@ -14,6 +14,7 @@ from app.db import get_db
 from app.models import Paper
 from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
+from app.services.evidence_context import prepare_evidence
 from app.services.llm_client import llm_available
 from app.services.local_execution import local_only_request, loopback_host, loopback_url
 from app.services.retrieval_trace import RetrievalTrace
@@ -181,13 +182,52 @@ async def _submit_query_impl(
                 year_to=request.year_to,
                 provider=request.provider,
                 trace=trace,
+                **(
+                    {"candidate_limit": settings.reranker_candidate_limit}
+                    if request.retrieval_mode == "hybrid"
+                    else {}
+                ),
                 **({"queries": query_plan.queries} if query_plan else {}),
             )
-            prompt_ids = (
-                [item["chunk_id"] for item in evidence] if llm_available() else []
-            )
+            packed = None
+            if request.retrieval_mode == "hybrid":
+                packed = await prepare_evidence(
+                    request.query, evidence, paper_ids=request.paper_ids, trace=trace
+                )
+                evidence = packed.sources
             answer_start = time.perf_counter()
-            answer, cited = await answer_from_evidence(request.query, evidence, trace)
+            answer, cited = await answer_from_evidence(
+                request.query,
+                evidence,
+                trace,
+                **({"packed_context": packed} if packed is not None else {}),
+            )
+            prompt_ids = list(trace.record["prompt_evidence_ids"])
+            if packed is not None and request.paper_ids:
+                missing = [
+                    paper_id
+                    for paper_id in request.paper_ids
+                    if packed.coverage[paper_id]["context_status"] == "unknown"
+                ]
+                if missing:
+                    titles = dict(
+                        (
+                            await db.execute(
+                                select(Paper.id, Paper.title).where(
+                                    Paper.id.in_(missing)
+                                )
+                            )
+                        ).all()
+                    )
+                    labels = [
+                        titles.get(paper_id, "Unknown selected paper")[:200]
+                        for paper_id in missing
+                    ]
+                    answer += (
+                        "\n\nNo usable context for: "
+                        + "; ".join(labels)
+                        + ". Results for these papers remain unknown."
+                    )
             trace.record["stage_ms"]["answer"] = round(
                 (time.perf_counter() - answer_start) * 1000, 3
             )
@@ -205,7 +245,7 @@ async def _submit_query_impl(
             )
         except Exception as exc:
             trace.record_failure("query", exc)
-            trace.finish("error", prompt_ids)
+            trace.finish("error", trace.record["prompt_evidence_ids"])
             raise
         now = datetime.now(UTC)
         session_manager.update_session(
@@ -233,6 +273,7 @@ async def _submit_query_impl(
             sources=[],
             confidence="medium" if cited else "low",
             evidence=cited,
+            context_coverage=packed.coverage if packed is not None else {},
             retrieval_mode=mode,
             retrieval_query=retrieval_query,
             rewrite_status=rewrite_status,

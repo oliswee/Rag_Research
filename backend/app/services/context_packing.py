@@ -315,8 +315,10 @@ def pack_context(
         coverage[paper_id] = {
             "candidate_status": "available" if candidates else "unknown",
             "candidate_count": len(candidates),
-            "prompt_count": len(chosen),
-            "prompt_status": "included" if chosen else "unknown",
+            "context_count": len(chosen),
+            "context_status": "included" if chosen else "unknown",
+            "prompt_count": 0,
+            "prompt_status": "not_sent",
             "support_status": "unknown",
         }
     if trace is not None:
@@ -335,7 +337,9 @@ def pack_context(
             "parent_budget": parent_budget,
             "candidate_count": len(unique),
             "prompt_count": len(admitted),
-            "prompt_evidence_coverage": len(admitted) / len(unique) if unique else None,
+            "assembled_evidence_coverage": len(admitted) / len(unique)
+            if unique
+            else None,
             "background_context_fraction": 1 - child_bytes / context_bytes
             if context_bytes
             else None,

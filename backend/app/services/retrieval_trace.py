@@ -295,6 +295,12 @@ class RetrievalTrace:
         self.record["returned_evidence_ids"] = list(
             dict.fromkeys(returned_evidence_ids or [])
         )
+        packing = self.record.get("context_packing")
+        if packing is not None:
+            count = packing["candidate_count"]
+            packing["actual_prompt_evidence_coverage"] = (
+                len(self.record["prompt_evidence_ids"]) / count if count else None
+            )
         self.record["total_ms"] = round((time.perf_counter() - self._started) * 1000, 3)
 
     def as_dict(self) -> dict:

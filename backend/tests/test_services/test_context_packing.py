@@ -154,7 +154,7 @@ def test_child_first_budget_reserves_all_explicit_papers(count):
     items[0]["parent"] = parent("Paper 0 result. " + "Large background. " * 1000)
     packed = pack_context(items, paper_ids=[f"p{i}" for i in range(count)], budget=2400)
     assert {s["paper_id"] for s in packed.sources} == {f"p{i}" for i in range(count)}
-    assert all(v["prompt_status"] == "included" for v in packed.coverage.values())
+    assert all(v["context_status"] == "included" for v in packed.coverage.values())
     assert packed.token_units <= 2400
 
 
@@ -169,7 +169,7 @@ def test_whole_child_over_budget_is_unknown_never_partial_numeric_quote():
         trace=recorder,
     )
     assert not packed.sources and packed.text == ""
-    assert packed.coverage["p"]["prompt_status"] == "unknown"
+    assert packed.coverage["p"]["context_status"] == "unknown"
     assert packed.coverage["missing"]["candidate_status"] == "unknown"
     assert (
         recorder.record["context_packing"]["decisions"][0]["reason"]

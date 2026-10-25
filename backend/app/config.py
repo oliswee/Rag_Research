@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     retrieval_concurrency: int = Field(3, ge=1, le=3)
     retrieval_per_query_k: int = Field(30, ge=1, le=30)
     retrieval_rrf_k: int = Field(60, ge=1, le=60)
+    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    reranker_cache_dir: str = "data/models/reranker"
+    reranker_candidate_limit: int = Field(30, ge=10, le=50)
+    reranker_selected_limit: int = Field(10, ge=5, le=10)
+    reranker_timeout_seconds: float = Field(15, gt=0, le=15)
+    context_token_budget: int = Field(8192, ge=128, le=16384)
+    context_parent_budget: int = Field(2048, ge=128, le=4096)
 
     # Qdrant
     qdrant_host: str = "localhost"

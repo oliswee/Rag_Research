@@ -13,13 +13,19 @@ from app.schemas.evidence import GroundedAnswer, StudyCharacteristics
 from app.schemas.query import QueryRequest
 from app.schemas.research import ComparisonCell, ComparisonResponse, ComparisonRow
 from app.services.academic_search import AcademicSearch, WebBudget
+from app.services.evidence_context import prepare_evidence
 from app.services.evidence_registry import build_registry
-from app.services.evidence_routing import parse_policy
+from app.services.evidence_routing import RoutingDecision, Sufficiency, parse_policy
 from app.services.grounded_generation import VerificationBudget, generate_grounded
 from app.services.local_execution import local_only_request
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.study_comparison import compare_studies
-from app.workflows.local_web import local_retrieval, run_local_web
+from app.workflows.local_web import (
+    LocalRun,
+    RoutingResult,
+    local_retrieval,
+    run_local_web,
+)
 
 DIMENSIONS = [
     "Common findings",
@@ -90,6 +96,7 @@ async def collect_papers(db, policy, trace, *, local_runner=None, searcher=None)
                 "retrieval_mode": result.local.mode,
                 "local_retry_count": child.record["local_retry_count"],
                 "rankings": child.record["rankings"],
+                "retrieval_budget": child.record.get("retrieval_budget", {}),
                 "local_routing_attempts": child.record.get(
                     "local_routing_attempts", []
                 ),
@@ -101,6 +108,48 @@ async def collect_papers(db, policy, trace, *, local_runner=None, searcher=None)
         )
     trace.record["comparison_web_attempts"] = budget.attempts
     return results
+
+
+async def collect_scoped_query(db, policy, trace):
+    runs = await collect_papers(db, policy, trace)
+    sources = [source for _, result in runs for source in result.packed.sources]
+    packed = await prepare_evidence(
+        policy.question, sources, paper_ids=policy.paper_ids, trace=trace
+    )
+    searched = any(result.decision.action == "search_web" for _, result in runs)
+    reasons = tuple(
+        dict.fromkeys(
+            reason for _, result in runs for reason in result.decision.reasons
+        )
+    )
+    modes = {result.local.mode for _, result in runs}
+    local = LocalRun(
+        packed,
+        "hybrid" if modes == {"hybrid"} else "hybrid_degraded",
+        sum(result.local.query_count for _, result in runs),
+        "disabled",
+        "independent_paper_scope",
+    )
+    trace.record["local_retry_count"] = sum(
+        run["local_retry_count"] for run in trace.record["paper_runs"]
+    )
+    trace.record["web_decision"] = "search_web" if searched else "answer_local"
+    return RoutingResult(
+        packed=packed,
+        decision=RoutingDecision(trace.record["web_decision"], reasons),
+        local=local,
+        assessment=Sufficiency(
+            "sufficient"
+            if all(result.assessment.state == "sufficient" for _, result in runs)
+            else "uncertain",
+            reasons,
+        ),
+        web_records=[r for _, result in runs for r in result.web_records],
+        notices=list(
+            dict.fromkeys(notice for _, result in runs for notice in result.notices)
+        ),
+        web_snapshots=tuple(s for _, result in runs for s in result.web_snapshots),
+    )
 
 
 def _characteristics(claims):

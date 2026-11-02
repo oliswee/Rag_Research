@@ -186,7 +186,13 @@ class EvidenceRegistry:
 
 
 async def build_registry(
-    db, sources, *, web_snapshots=(), paper_ids=None, local_only=False
+    db,
+    sources,
+    *,
+    web_snapshots=(),
+    paper_ids=None,
+    local_only=False,
+    only_uploaded=False,
 ):
     if len(sources) > 50:
         raise ValueError("Too many verification sources")
@@ -203,7 +209,7 @@ async def build_registry(
             if paper_ids is not None and source.get("paper_id") not in paper_ids:
                 raise ValueError("Source outside paper scope")
             if source.get("source_origin") == "web":
-                if local_only:
+                if local_only or only_uploaded:
                     raise ValueError("Web prohibited")
                 snapshot = trusted_web.get(source_id)
                 current = _snapshot(source, origin="web")
@@ -222,6 +228,8 @@ async def build_registry(
                     or paper.status == PaperStatus.archived
                 ):
                     raise ValueError("Local evidence unavailable")
+                if only_uploaded and paper.import_source is not None:
+                    raise ValueError("Imported source outside uploaded-only scope")
                 original = await resolve_child(db, child, allow_parent_failure=True)
                 for key in (
                     "paper_id",

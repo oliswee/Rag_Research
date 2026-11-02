@@ -49,7 +49,10 @@ async def test_m4_coverage_names_missing_paper_and_distinguishes_unsent_context(
     assert response["context_coverage"][papers[0].id]["context_status"] == "included"
     assert response["context_coverage"][papers[0].id]["prompt_status"] == "not_sent"
     record = json.loads((tmp_path / "trace.jsonl").read_text())
-    assert record["retrieval_budget"]["candidate_k"] == 30
+    assert len(record["paper_runs"]) == 2
+    assert all(
+        run["retrieval_budget"]["candidate_k"] == 30 for run in record["paper_runs"]
+    )
     assert record["prompt_evidence_ids"] == []
     assert record["context_packing"]["actual_prompt_evidence_coverage"] == 0
 
@@ -223,19 +226,26 @@ async def test_query_uses_rewritten_search_but_answers_original_question(
             }
         ], "bm25"
 
-    async def fake_answer(question, evidence, trace=None):
+    async def fake_answer(db, question, packed, snapshots, trace, **kwargs):
+        from app.schemas.evidence import GroundedAnswer
+
         assert trace is not None
-        return f"Answer to {question}: {evidence[0]['excerpt']}", evidence
+        return GroundedAnswer(
+            text=f"Answer to {question}: {packed.sources[0]['excerpt']}",
+            evidence=packed.sources,
+            support_status="evidence_only",
+        )
 
     monkeypatch.setattr(
         "app.workflows.query_rewrite.rewrite_for_retrieval", fake_rewrite
     )
     monkeypatch.setattr("app.routers.query.retrieve", fake_retrieve)
-    monkeypatch.setattr("app.routers.query.answer_from_evidence", fake_answer)
+    monkeypatch.setattr("app.routers.query.answer_grounded", fake_answer)
 
     response = await submit_query(
         QueryRequest(
             query="What about its latency?",
+            paper_ids=["paper-1"],
             retrieval_mode="bm25",
             rewrite_query=True,
         ),
@@ -293,8 +303,10 @@ async def test_query_records_terminal_failure_after_recoverable_failure(
         kwargs["trace"].record_failure("dense", TimeoutError("dense unavailable"))
         return [], "bm25_fallback"
 
-    async def fake_answer(*_args):
-        return "Insufficient evidence.", []
+    async def fake_answer(*_args, **kwargs):
+        from app.schemas.evidence import GroundedAnswer
+
+        return GroundedAnswer(text="Insufficient evidence.")
 
     def broken_update(*_args):
         raise RuntimeError("later private failure")
@@ -302,7 +314,7 @@ async def test_query_records_terminal_failure_after_recoverable_failure(
     trace_path = tmp_path / "trace.jsonl"
     monkeypatch.setattr(settings, "retrieval_trace_path", str(trace_path))
     monkeypatch.setattr("app.routers.query.retrieve", fake_retrieve)
-    monkeypatch.setattr("app.routers.query.answer_from_evidence", fake_answer)
+    monkeypatch.setattr("app.routers.query.answer_grounded", fake_answer)
     monkeypatch.setattr(
         "app.routers.query.session_manager.update_session", broken_update
     )

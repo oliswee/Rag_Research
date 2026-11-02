@@ -12,16 +12,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_db
 from app.models import Paper
+from app.schemas.evidence import GroundedAnswer
 from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
-from app.services.evidence_routing import parse_policy
-from app.services.llm_client import llm_available
+from app.services.context_packing import pack_context
+from app.services.evidence_routing import RoutingDecision, Sufficiency, parse_policy
+from app.services.grounded_qa import answer_grounded
 from app.services.local_execution import local_only_request, loopback_host, loopback_url
+from app.services.query_clarification import clarify_scope
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
 from app.services.trace_versions import corpus_version
-from app.workflows.local_web import local_retrieval, run_local_web
-from app.workflows.source_query import answer_from_evidence, retrieve
+from app.workflows.local_web import (
+    LocalRun,
+    RoutingResult,
+    local_retrieval,
+    run_local_web,
+)
+from app.workflows.source_query import retrieve
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/query", tags=["query"])
@@ -153,17 +161,50 @@ async def _submit_query_impl(request, db, trace):
             db, p, history, t, correction=correction, retriever=retrieve
         )
 
-    result = await run_local_web(
-        db, policy, session.history, trace, local_runner=local_runner
-    )
+    papers = list((await db.scalars(select(Paper))).all())
+    clarification = clarify_scope(request.query, papers, session.history, policy)
+    if clarification.question:
+        empty = pack_context([], trace=trace)
+        result = RoutingResult(
+            empty,
+            RoutingDecision("clarify_scope", (clarification.code,)),
+            LocalRun(empty, "hybrid", 0, "disabled", "clarification_required"),
+            Sufficiency("uncertain", (clarification.code,)),
+        )
+        trace.record["web_decision"] = "clarify_scope"
+    elif (
+        policy.retrieval_mode == "hybrid"
+        and policy.paper_ids is not None
+        and 2 <= len(policy.paper_ids) <= 5
+    ):
+        from app.workflows.comparison import collect_scoped_query
+
+        result = await collect_scoped_query(db, policy, trace)
+    else:
+        result = await run_local_web(
+            db, policy, session.history, trace, local_runner=local_runner
+        )
     packed = result.packed
     started = time.perf_counter()
-    answer, cited = await answer_from_evidence(
-        request.query,
-        packed.sources,
-        trace,
-        **({"packed_context": packed} if request.retrieval_mode == "hybrid" else {}),
+    grounded = (
+        GroundedAnswer(
+            text=clarification.question,
+            support_status="clarification",
+            uncertainty=[clarification.code],
+        )
+        if clarification.question
+        else await answer_grounded(
+            db,
+            request.query,
+            packed,
+            result.web_snapshots,
+            trace,
+            paper_ids=request.paper_ids,
+            local_only=policy.local_only,
+            only_uploaded=policy.only_uploaded,
+        )
     )
+    answer, cited = grounded.text, grounded.evidence
     if request.paper_ids:
         missing = [
             p
@@ -189,11 +230,7 @@ async def _submit_query_impl(request, db, trace):
         (time.perf_counter() - started) * 1000, 3
     )
     trace.finish(
-        "supported"
-        if cited and llm_available()
-        else "evidence_only"
-        if cited
-        else "abstain",
+        grounded.support_status,
         trace.record["prompt_evidence_ids"],
         [s["chunk_id"] for s in cited],
     )
@@ -222,7 +259,9 @@ async def _submit_query_impl(request, db, trace):
         run_id=trace.run_id,
         response=answer,
         sources=[],
-        confidence="medium" if cited else "low",
+        confidence="medium"
+        if grounded.support_status in {"supported", "partial"}
+        else "low",
         evidence=cited,
         context_coverage=packed.coverage,
         retrieval_mode=result.local.mode,
@@ -240,7 +279,13 @@ async def _submit_query_impl(request, db, trace):
             "only_uploaded": policy.only_uploaded,
         },
         web_records=result.web_records,
-        notices=result.notices,
+        notices=[*result.notices, *clarification.assumptions],
+        claims=grounded.claims,
+        citations=grounded.citations,
+        support_status=grounded.support_status,
+        uncertainty=grounded.uncertainty,
+        clarification=clarification.model_dump(),
+        discovery_url=clarification.discovery_url,
     ).model_dump()
 
 

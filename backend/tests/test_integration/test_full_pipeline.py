@@ -87,7 +87,9 @@ class TestFullPipeline:
 
         assert query_data["session_id"] is not None
         assert query_data["retrieval_mode"] in {"hybrid", "bm25_fallback"}
-        assert query_data["confidence"] == "medium"
+        assert query_data["confidence"] == "low"
+        assert query_data["support_status"] == "evidence_only"
+        assert query_data["claims"] == []
         assert query_data["evidence"]
         assert (
             "memory consolidation"
@@ -296,7 +298,8 @@ class TestFullPipeline:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["confidence"] == "low"
-        assert "insufficient evidence" in data["response"].lower()
+        assert data["support_status"] == "abstain"
+        assert data["claims"] == [] and "unknown" in data["response"].lower()
         assert data["routing"]["action"] == "search_web"
         assert data["routing"]["local_retry_count"] == 1
         assert data["web_records"] == []

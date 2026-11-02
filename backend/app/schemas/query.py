@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.evidence import AtomicClaim, Citation
 from app.schemas.session import SourceReference
 
 
@@ -83,6 +84,12 @@ class QueryResponse(BaseModel):
     routing: dict = Field(default_factory=dict)
     web_records: list[dict] = Field(default_factory=list)
     notices: list[str] = Field(default_factory=list)
+    claims: list[AtomicClaim] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    support_status: str = "unknown"
+    uncertainty: list[str] = Field(default_factory=list)
+    clarification: dict | None = None
+    discovery_url: str = "/discover"
     retrieval_status: str | None = None
     rewrite_status: Literal["disabled", "applied", "unavailable", "failed"] | None = (
         None

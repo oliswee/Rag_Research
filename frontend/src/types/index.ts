@@ -187,6 +187,46 @@ export interface QueryResponse {
   routing?: { intent: string; action: string; sufficiency: string; reasons: string[]; local_retry_count: number; local_only: boolean; only_uploaded: boolean };
   web_records?: WebRecord[];
   notices?: string[];
+  claims?: AtomicClaim[];
+  citations?: Citation[];
+  support_status?: string;
+  uncertainty?: string[];
+  clarification?: {question?: string | null; code?: string | null; assumptions: string[]} | null;
+  discovery_url?: string;
+}
+
+export interface Citation {
+  citation_id: string;
+  source_id: string;
+  paper_id: string;
+  doi?: string | null;
+  source_origin: "local" | "web";
+  evidence_type: "full_text" | "abstract_only" | "metadata_only";
+  source_url: string;
+  raw_quote: string;
+  span: {paper_id: string; document_id: string; document_version: string; block_id: string; raw_start: number; raw_end: number; page: number | null}[];
+  pdf_page: number | null;
+  version: string;
+  support_status: string;
+  retrieved_at?: string | null;
+  license?: string | null;
+}
+
+export interface AtomicClaim {
+  claim_id: string;
+  text: string;
+  paper_id: string | null;
+  dimension?: string | null;
+  citations: Citation[];
+  support_status: string;
+  uncertainty: string[];
+  characteristics?: Record<string, {value?: string | null; raw_quote?: string | null; citation_ids?: string[]; support_status?: string} | string | number | null>;
+}
+
+export interface ComparisonAssessment {
+  paper_ids: [string, string];
+  status: "comparable_agreement" | "comparable_conflict" | "not_comparable" | "insufficient_evidence";
+  reasons: string[];
 }
 
 export interface WebRecord {
@@ -264,8 +304,13 @@ export interface ImportJob {
 }
 
 export interface CompareResult {
+  run_id?: string;
   papers: { id: string; title: string }[];
-  rows: { label: string; cells: { paper_id: string; text: string; evidence: Evidence[] }[] }[];
+  rows: { label: string; cells: { paper_id: string; text: string; evidence: Evidence[]; claims?: AtomicClaim[]; citations?: Citation[]; support_status?: string; uncertainty?: string[] }[]; comparisons?: ComparisonAssessment[] }[];
+  coverage?: Record<string, {candidate_count?: number; context_count?: number; prompt_count?: number; supported_count?: number}>;
+  notices?: string[];
+  web_records?: WebRecord[];
+  verification?: {calls?: number};
 }
 
 // ============================================================================

@@ -174,6 +174,11 @@ async def generate_grounded(
             '"characteristics":{"population":{"value":"verbatim population phrase",'
             '"source_id":"child ID","raw_quote":"original sentence"}}}]}. '
             "Each claim belongs to exactly one paper. Omit unsupported claims. "
+            "citation_catalog explicitly maps each CHILD source_id to paper_id. "
+            "source_ids must contain CHILD source_id strings, NEVER paper_id. "
+            "supporting_quotes must use those same exact source_id strings as keys, "
+            "not the literal words child ID. Omit optional characteristics unless "
+            "their nested objects and separate original quotes can be supplied. "
             "Use verbatim child quotes, not parent-only background. Abstracts "
             "support only their statements, never inferred full-text details. "
             "Metadata cannot support results. Never change numbers, units, "
@@ -190,6 +195,10 @@ async def generate_grounded(
                 "question": question[:1000],
                 "dimensions": dimensions,
                 "max_claims": min(len(dimensions), 4) if dimensions else 20,
+                "citation_catalog": [
+                    {"source_id": s["chunk_id"], "paper_id": s["paper_id"]}
+                    for s in evidence
+                ],
                 "evidence_blocks": packed.text,
             },
             max_tokens=generation_tokens,
@@ -327,6 +336,11 @@ async def generate_grounded(
                     for c in claims
                 ],
             }
+    for claim in claims:
+        claim.citations = [
+            citation.model_copy(update={"support_status": claim.support_status})
+            for citation in claim.citations
+        ]
     supported = [c for c in claims if c.support_status == "supported" and c.text]
     citations = list(
         {c.citation_id: c for claim in supported for c in claim.citations}.values()

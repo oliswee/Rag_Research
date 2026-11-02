@@ -1,5 +1,6 @@
 """Local-first evidence query routes with immutable inherited scope."""
 
+import hashlib
 import logging
 import time
 from datetime import UTC, datetime
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_db
-from app.models import Paper
+from app.models import Paper, PaperChunk, PaperStatus
 from app.schemas.evidence import GroundedAnswer
 from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
@@ -161,8 +162,49 @@ async def _submit_query_impl(request, db, trace):
             db, p, history, t, correction=correction, retriever=retrieve
         )
 
-    papers = list((await db.scalars(select(Paper))).all())
-    clarification = clarify_scope(request.query, papers, session.history, policy)
+    papers = list(
+        (
+            await db.scalars(select(Paper).where(Paper.status != PaperStatus.archived))
+        ).all()
+    )
+    previous = next(
+        (
+            turn.sources or []
+            for turn in reversed(session.history)
+            if turn.role == "assistant"
+        ),
+        [],
+    )
+    reference_ids = [source.pattern_id for source in previous[:50]]
+    reference_papers = (
+        dict(
+            (
+                await db.execute(
+                    select(PaperChunk.id, PaperChunk.paper_id).where(
+                        PaperChunk.id.in_(reference_ids)
+                    )
+                )
+            ).all()
+        )
+        if reference_ids
+        else {}
+    )
+    clarification = clarify_scope(
+        request.query,
+        papers,
+        session.history,
+        policy,
+        reference_papers=reference_papers,
+    )
+    if clarification.resolved_paper_ids:
+        request = request.model_copy(
+            update={"paper_ids": clarification.resolved_paper_ids}
+        )
+        policy = parse_policy(request)
+        trace.record["scope"]["paper_id_count"] = len(request.paper_ids)
+        trace.record["scope"]["paper_id_hashes"] = [
+            hashlib.sha256(item.encode()).hexdigest() for item in request.paper_ids
+        ]
     if clarification.question:
         empty = pack_context([], trace=trace)
         result = RoutingResult(

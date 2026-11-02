@@ -180,6 +180,7 @@ class EvidenceRegistry:
                 "page_end": max(s.pdf_pages) if s.pdf_pages else None,
                 "license": s.license,
                 "retrieved_at": s.retrieved_at,
+                "year": s.year,
             }
             for s in self.sources.values()
         ]
@@ -231,6 +232,8 @@ async def build_registry(
                 if only_uploaded and paper.import_source is not None:
                     raise ValueError("Imported source outside uploaded-only scope")
                 original = await resolve_child(db, child, allow_parent_failure=True)
+                if original.get("status") == "retired":
+                    raise ValueError("Retired generation cannot support new findings")
                 for key in (
                     "paper_id",
                     "excerpt",
@@ -248,7 +251,15 @@ async def build_registry(
                     )
                 )
                 snapshot = _snapshot(
-                    original, origin="local", title=paper.title, doi=doi
+                    {
+                        **original,
+                        "year": paper.published_date.year
+                        if paper.published_date
+                        else None,
+                    },
+                    origin="local",
+                    title=paper.title,
+                    doi=doi,
                 )
             if source_id in accepted and snapshot != accepted[source_id]:
                 accepted.pop(source_id)

@@ -167,3 +167,45 @@ async def test_multi_paper_qa_decomposes_by_identity_and_preserves_coverage(
     )
     assert calls == [(p.id,) for p, _ in samples]
     assert set(response["context_coverage"]) == set(sources)
+
+
+@pytest.mark.asyncio
+async def test_pronoun_is_bound_to_authoritative_previous_paper(
+    async_db_session, monkeypatch, tmp_path, generation_model
+):
+    from datetime import UTC, datetime
+
+    from app.schemas.session import ConversationTurn, SourceReference
+    from app.services.session_manager import session_manager
+
+    paper, source = await local_source(async_db_session)
+    await local_source(async_db_session)
+    session = session_manager.create_session()
+    session_manager.update_session(
+        session.session_id,
+        ConversationTurn(
+            role="assistant",
+            content="Original evidence",
+            timestamp=datetime.now(UTC),
+            sources=[SourceReference(pattern_id=source["chunk_id"])],
+        ),
+    )
+    seen = []
+
+    async def retrieve(db, question, paper_ids=None, mode="bm25", **kwargs):
+        seen.append(paper_ids)
+        return [source], "bm25"
+
+    monkeypatch.setattr("app.routers.query.retrieve", retrieve)
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(tmp_path / "trace.jsonl"))
+    response = await submit_query(
+        QueryRequest(
+            query="What is its accuracy?",
+            session_id=session.session_id,
+            retrieval_mode="bm25",
+            rewrite_query=False,
+        ),
+        async_db_session,
+    )
+    assert seen and all(scope == [paper.id] or scope == (paper.id,) for scope in seen)
+    assert response["citations"][0]["paper_id"] == paper.id

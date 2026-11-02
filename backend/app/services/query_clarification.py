@@ -11,9 +11,10 @@ class ScopeClarification(BaseModel):
     question: str | None = None
     assumptions: list[str] = Field(default_factory=list)
     discovery_url: str = "/discover"
+    resolved_paper_ids: list[str] | None = None
 
 
-def clarify_scope(question, papers, history, policy):
+def clarify_scope(question, papers, history, policy, *, reference_papers=None):
     result = ScopeClarification()
     if policy.intent == "latest":
         result.assumptions.append(
@@ -52,7 +53,14 @@ def clarify_scope(question, papers, history, policy):
         if getattr(turn, "role", None) == "assistant":
             references = getattr(turn, "sources", None) or []
             break
-    if pronoun and (not references or len(references) > 1):
+    identities = {
+        (reference_papers or {}).get(getattr(reference, "pattern_id", None))
+        for reference in references
+    }
+    known = {p.id for p in papers}
+    if pronoun and (
+        len(identities) != 1 or None in identities or not identities <= known
+    ):
         return result.model_copy(
             update={
                 "code": "unbound_paper_reference",
@@ -60,7 +68,8 @@ def clarify_scope(question, papers, history, policy):
             }
         )
     if pronoun:
+        result.resolved_paper_ids = sorted(identities)
         result.assumptions.append(
-            "The pronoun refers to the current session's single referenced source."
+            "The pronoun is scoped to the previous response's verified paper identity."
         )
     return result

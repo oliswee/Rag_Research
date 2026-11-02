@@ -223,3 +223,32 @@ async def test_canonical_parent_still_expands_bounded_context_after_registry(
     packed = pack_context(registry.source_dicts(), budget=8192, parent_budget=2048)
     assert packed.blocks[0]["expansion_status"] == "parent_window"
     assert len(packed.blocks[0]["text"]) > len(source["excerpt"])
+
+
+@pytest.mark.asyncio
+async def test_local_publication_year_comes_from_sqlite(async_db_session):
+    from datetime import date
+
+    build_registry, _ = api()
+    paper, source = await local_source(async_db_session)
+    paper.published_date = date(2024, 3, 2)
+    source["year"] = 2099
+    await async_db_session.flush()
+    registry = await build_registry(async_db_session, [source])
+    assert registry.sources[source["chunk_id"]].year == 2024
+
+
+@pytest.mark.asyncio
+async def test_retired_generation_cannot_supply_new_findings(async_db_session):
+    from app.models import SourceIndexGeneration
+
+    build_registry, _ = api()
+    _, source = await local_source(async_db_session, native=True)
+    generation = await async_db_session.get(
+        SourceIndexGeneration, source["index_version"]
+    )
+    generation.is_active = False
+    await async_db_session.flush()
+    registry = await build_registry(async_db_session, [source])
+    assert not registry.sources
+    assert registry.rejections

@@ -36,9 +36,9 @@
 
 **Interfaces:** Frozen `EvidenceSnapshot` captures one original excerpt/identity/spans/pages/version/source URL; `EvidenceRegistry` maps source IDs to validated snapshots; `build_registry(db,sources,*,web_snapshots=(),paper_ids=None,local_only=False)`. `Citation`, `AtomicClaim`, `GroundedAnswer`, `StudyCharacteristics` are Pydantic response contracts. `seal_web_sources(sources)` only at the trusted temporary-pool boundary, not from caller-provided model data.
 
-- [ ] RED local original/corrupt/legacy/null-page/archived and Web current-snapshot/tamper/metadata/version/unknown-ID/cross-paper fixtures.
-- [ ] Implement SQLite authoritative re-resolution and immutable normalized registry; cap50 sources, preserve all original source origins/versions, canonical local citation endpoints and safe public Web URLs. No DB writes or persistent Web cache.
-- [ ] GREEN registry + source anchor/Web regressions; commit and ledger evidence.
+- [x] RED local original/corrupt/legacy/null-page/archived and Web current-snapshot/tamper/metadata/version/unknown-ID/cross-paper fixtures.
+- [x] Implement SQLite authoritative re-resolution and immutable normalized registry; cap50 sources, preserve all original source origins/versions, canonical local citation endpoints and safe public Web URLs. No DB writes or persistent Web cache.
+- [x] GREEN registry + source anchor/Web regressions; commit and ledger evidence.
 
 ### Task 2: Bounded atomic generation, scientific checks and comparability
 
@@ -46,10 +46,10 @@
 
 **Interfaces:** `VerificationBudget.call(client,system,payload,*,max_tokens,trace)`; `check_proposal(proposal,registry,*,paper_id=None) -> AtomicClaim`; `generate_grounded(question,registry,packed,trace,*,dimensions=None,budget=None,client=None,verification_mode='atomic_batch') -> GroundedAnswer`; `compare_studies(left,right) -> ComparisonAssessment`. Characteristics are quoted evidence fields, not unverified model labels.
 
-- [ ] RED supported/contradicted/insufficient verdicts, wrong/missing citations, partial quotes/parent-only spans,95→99,OR→RR,ms→s,direction flip,n/sample-size,association→causal,abstract→fulltext and metadata counterexamples.
-- [ ] Implement deterministic checks + one batched semantic call; reject multi-sentence non-atomic proposals conservatively; suppress rejected finding text, preserve reason codes/uncertainty and evidence-only/abstain fallback. Close owned client with cancellation-safe cleanup. Trace only IDs/counts/status/reasons/budgets.
-- [ ] RED/GREEN comparable agreement/conflict,OR/RR mismatch,preprint/native-version mismatch,missing adjustment and same-study independence cases. Test strict call/output/input/time limits and no extra calls on failure.
-- [ ] GREEN focused suites; commit.
+- [x] RED supported/contradicted/insufficient verdicts, wrong/missing citations, partial quotes/parent-only spans,95→99,OR→RR,ms→s,direction flip,n/sample-size,association→causal,abstract→fulltext and metadata counterexamples.
+- [x] Implement deterministic checks + one batched semantic call; reject multi-sentence non-atomic proposals conservatively; suppress rejected finding text, preserve reason codes/uncertainty and evidence-only/abstain fallback. Close owned client with cancellation-safe cleanup. Trace only IDs/counts/status/reasons/budgets.
+- [x] RED/GREEN comparable agreement/conflict,OR/RR mismatch,preprint/native-version mismatch,missing adjustment and same-study independence cases. Test strict call/output/input/time limits and no extra calls on failure.
+- [x] GREEN focused suites; commit.
 
 ### Task 3: Independent paper retrieval and verified comparison workflow
 
@@ -57,9 +57,9 @@
 
 **Interfaces:** `run_comparison(db,request,trace,*,local_runner=None,searcher=None,generator=None) -> ComparisonResponse`; M5 `run_local_web(...,initial_local=None)` reuses already completed local stage; `AcademicSearch(...,budget=None)` and Web pool share one `WebBudget` including provider/PDF allocation. Matrix rows retain legacy paper_id/text/evidence and add claims/citations/support/uncertainty/comparisons/coverage/run_id.
 
-- [ ] RED2/3/5paper all-local-before-Web, one missing/scoped external match, no legal external text, duplicate title/version, same DOI local+Web, shared budget exhaustion, upload/local privacy and model timeout fixtures.
-- [ ] Implement one deterministic per-paper query covering four dimensions, rewrite off; independent scope/coverage and at most one local correction; generate/verify each column within shared model budget. Missing paper identity404; existing paper without usable evidenceunknown. Route constraints/local endpoint checks apply before DB/inference.
-- [ ] Keep reference compatibility fields, emit explicit comparison assessments and atomic source provenance, safe partial failures and sanitized Trace; GREEN integration/privacy tests, commit.
+- [x] RED2/3/5paper all-local-before-Web, one missing/scoped external match, no legal external text, duplicate title/version, same DOI local+Web, shared budget exhaustion, upload/local privacy and model timeout fixtures.
+- [x] Implement one deterministic per-paper query covering four dimensions, rewrite off; independent scope/coverage and at most one local correction; generate/verify each column within shared model budget. Missing paper identity404; existing paper without usable evidenceunknown. Route constraints/local endpoint checks apply before DB/inference.
+- [x] Keep reference compatibility fields, emit explicit comparison assessments and atomic source provenance, safe partial failures and sanitized Trace; GREEN integration/privacy tests, commit.
 
 ### Task 4: Verified QA schema and necessary scope clarification
 
@@ -67,9 +67,9 @@
 
 **Interfaces:** `answer_grounded(db,question,packed,web_snapshots,trace,*,paper_ids=None,local_only=False) -> GroundedAnswer`; `clarify_scope(question,papers,history,policy) -> Clarification|None`. Existing response/returned evidence preserved; add authoritative claims/citations/support_status/uncertainty/clarification/discovery_url.
 
-- [ ] RED API actual-source recheck, mixed-origin claims, unknown pages/versions, lost paper coverage, absent model/no evidence/failure, no unchecked factual streaming, followup privacy inheritance and exact prompt IDs after registry pruning.
-- [ ] Implement one necessary clarification for unbound pronouns/duplicate titles/undefined latest time scope or clearly stated bounded assumption; coverage shortage links existing Discover page without imports. Selected IDs override title ambiguity. No extra agent or clarification model.
-- [ ] GREEN QA/M3–M5 source/session regressions; commit.
+- [x] RED API actual-source recheck, mixed-origin claims, unknown pages/versions, lost paper coverage, absent model/no evidence/failure, no unchecked factual streaming, followup privacy inheritance and exact prompt IDs after registry pruning.
+- [x] Implement one necessary clarification for unbound pronouns/duplicate titles/undefined latest time scope or clearly stated bounded assumption; coverage shortage links existing Discover page without imports. Selected IDs override title ambiguity. No extra agent or clarification model.
+- [x] GREEN QA/M3–M5 source/session regressions; commit.
 
 ### Task 5: Matrix/source UI, generated-answer diagnostics and delivery
 

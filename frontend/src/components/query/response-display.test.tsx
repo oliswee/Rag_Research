@@ -2,6 +2,35 @@ import { render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { ResponseDisplay } from "./response-display";
 
+it("presents a necessary scope clarification and discovery link", () => {
+  render(
+    <ResponseDisplay
+      response={{
+        session_id: "s",
+        response: "Which paper should I use?",
+        sources: [],
+        confidence: "low",
+        follow_up_suggestions: [],
+        retrieval_mode: "hybrid",
+        support_status: "clarification",
+        claims: [],
+        citations: [],
+        clarification: {
+          question: "Which paper should I use?",
+          code: "unbound_paper_reference",
+          assumptions: [],
+        },
+        discovery_url: "/discover",
+      }}
+    />
+  );
+  expect(screen.getByText("Scope needed")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /find papers/i })).toHaveAttribute(
+    "href",
+    "/discover"
+  );
+});
+
 it("labels temporary Web evidence and bibliographic records without invented pages", () => {
   render(
     <ResponseDisplay

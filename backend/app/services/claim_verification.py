@@ -101,7 +101,10 @@ def scientific_reasons(text, quotes, *, abstract_only=False):
     causal = r"\bcaus(?:e|es|ed|al)\b|\bleads? to\b|\bresults? in\b|导致|造成|因果"
     if re.search(causal, text, re.I) and not re.search(causal, quotes, re.I):
         reasons.append("causal_escalation")
-    negative = r"\b(?:not|no|never)\b|没有|不改善|无改善"
+    negative = (
+        r"\b(?:not|no|never)\b|n['’]t\b|\bfail(?:ed|s)? to\b"
+        r"|没有|(?:不|未|无)(?:改善|降低|减少|提高|增加|下降|上升)"
+    )
     up = r"\b(?:increas\w*|higher|improv\w*)\b|提高|上升|改善"
     down = r"\b(?:decreas\w*|lower|reduc\w*)\b|降低|下降"
     quoted_negative, claimed_negative = (
@@ -120,7 +123,7 @@ def scientific_reasons(text, quotes, *, abstract_only=False):
             and not re.search(down, quotes, re.I)
         )
         or quoted_negative != claimed_negative
-        and re.search(r"improv\w*|改善", text, re.I)
+        and re.search(f"{up}|{down}", text, re.I)
     ):
         reasons.append("direction_mismatch")
     if abstract_only and re.search(

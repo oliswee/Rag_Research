@@ -85,6 +85,7 @@ async def test_non_supported_semantic_verdict_never_publishes_factual_candidate(
     )
     assert quote not in result.text and result.claims[0].text == ""
     assert result.claims[0].support_status == status
+    assert all(c.support_status == status for c in result.claims[0].citations)
 
 
 @pytest.mark.asyncio
@@ -99,6 +100,30 @@ async def test_even_approving_judge_cannot_publish_wrong_number():
         "accuracy?", evidence, pack_context(evidence.source_dicts()), None, client=model
     )
     assert "99" not in result.text and result.claims[0].support_status == "unsupported"
+    assert len(model.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "quote,claimed",
+    [
+        ("The treatment did not reduce mortality.", "The treatment reduced mortality."),
+        ("Risk did not increase with treatment.", "Risk increased with treatment."),
+        ("本研究发现治疗未降低患者死亡率。", "本研究发现治疗降低患者死亡率。"),
+    ],
+)
+async def test_negated_change_cannot_be_approved_by_a_permissive_judge(quote, claimed):
+    _, generate = api()
+    evidence, model = registry(quote), Model(quote, claimed=claimed)
+    result = await generate(
+        "What changed?",
+        evidence,
+        pack_context(evidence.source_dicts()),
+        None,
+        client=model,
+    )
+    assert result.support_status == "evidence_only"
+    assert result.claims[0].support_status == "unsupported"
     assert len(model.calls) == 1
 
 

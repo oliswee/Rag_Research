@@ -170,6 +170,7 @@ class EvidenceRegistry:
                 "source_spans": [span.model_dump() for span in s.spans],
                 "parent_id": s.parent_id,
                 "parent": {
+                    "id": s.parent_id,
                     "raw_text": s.parent_text,
                     "source_spans": [span.model_dump() for span in s.parent_spans],
                 }

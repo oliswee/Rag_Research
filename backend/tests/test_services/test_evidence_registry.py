@@ -193,3 +193,33 @@ async def test_quote_must_be_in_child_not_only_parent(async_db_session):
     )
     with pytest.raises(ValueError):
         registry.cite(source["chunk_id"], "Parent-only unsupported conclusion.")
+
+
+@pytest.mark.asyncio
+async def test_canonical_parent_still_expands_bounded_context_after_registry(
+    async_db_session,
+):
+    from app.services.context_packing import pack_context
+
+    build_registry, _ = api()
+    paper = Paper(title="Long parent", type=PaperType.research_paper)
+    async_db_session.add(paper)
+    await async_db_session.flush()
+    parsed = PDFParserService().parse_abstract(
+        "Memory accuracy improves with retrieval. " * 80
+    )
+    build = await stage_generation(
+        async_db_session,
+        paper,
+        parsed,
+        child_size=120,
+        parent_size=1200,
+        embedding_model_id="local:test",
+    )
+    source = await resolve_child(
+        async_db_session, build.children[0], allow_parent_failure=True
+    )
+    registry = await build_registry(async_db_session, [source])
+    packed = pack_context(registry.source_dicts(), budget=8192, parent_budget=2048)
+    assert packed.blocks[0]["expansion_status"] == "parent_window"
+    assert len(packed.blocks[0]["text"]) > len(source["excerpt"])

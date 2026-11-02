@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     web_pdf_bytes: int = Field(3145728, ge=1024, le=3145728)
     web_pdf_pages: int = Field(50, ge=1, le=50)
     web_parser_timeout_seconds: float = Field(15, gt=0, le=15)
+    verification_max_calls: int = Field(10, ge=1, le=10)
+    verification_output_tokens: int = Field(8192, ge=128, le=8192)
+    verification_input_bytes: int = Field(131072, ge=128, le=131072)
+    verification_deadline_seconds: float = Field(180, gt=0, le=180)
+    verification_call_timeout_seconds: float = Field(30, gt=0, le=30)
 
     # Qdrant
     qdrant_host: str = "localhost"

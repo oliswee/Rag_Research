@@ -105,6 +105,14 @@ def configuration_snapshot() -> tuple[str, dict]:
             "pdf_pages": settings.web_pdf_pages,
             "parser_timeout_seconds": settings.web_parser_timeout_seconds,
         },
+        "claim_verification": {
+            "mode": "atomic_batch_m6_v1",
+            "max_calls": settings.verification_max_calls,
+            "output_tokens": settings.verification_output_tokens,
+            "input_bytes": settings.verification_input_bytes,
+            "deadline_seconds": settings.verification_deadline_seconds,
+            "call_timeout_seconds": settings.verification_call_timeout_seconds,
+        },
     }
     return "sha256:" + digest(manifest), manifest
 

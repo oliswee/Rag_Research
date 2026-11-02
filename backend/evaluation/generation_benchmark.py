@@ -162,6 +162,20 @@ class ReplayGeneration:
         self.client.trace = value
 
 
+class RecordedGeneration(ReplayGeneration):
+    """Capture actual drafts only for these public fixtures; never publish them."""
+
+    def __init__(self):
+        super().__init__(None)
+        self.raw = None
+
+    async def complete_json(self, **kwargs):
+        response = await self.client.complete_json(**kwargs)
+        if "evidence_blocks" in json.loads(kwargs["user_prompt"]):
+            self.raw = response
+        return response
+
+
 async def matrix_demo(db, destination):
     """Real orchestration with fixed retrieval/model boundary, no model or Web I/O."""
     from app.schemas.research import CompareRequest
@@ -257,7 +271,7 @@ async def matrix_demo(db, destination):
     )
 
 
-async def run(destination, live=False):
+async def run(destination, live=False, skip_ablation=False, cases_only=None):
     if live and (
         settings.llm_provider != "ollama" or not loopback_url(settings.ollama_base_url)
     ):
@@ -299,7 +313,7 @@ async def run(destination, live=False):
                         "model_calls": 0,
                     }
                 )
-                if live:
+                if live and not skip_ablation:
                     for mode in ("whole_review", "atomic_batch"):
                         client = ReplayGeneration(candidate)
                         trace = RetrievalTrace(
@@ -400,6 +414,8 @@ async def run(destination, live=False):
                 )
             )
             for name, question, sources in generation_cases:
+                if cases_only and name not in cases_only:
+                    continue
                 if not live and sources:
                     continue
                 snapshots = seal_web_sources(
@@ -411,12 +427,28 @@ async def run(destination, live=False):
                 )
                 budget = VerificationBudget()
                 started = time.perf_counter()
-                answer = await generate_grounded(
-                    question,
-                    registry,
-                    pack_context(registry.source_dicts()),
-                    trace,
-                    budget=budget,
+                recorder = RecordedGeneration() if live and sources else None
+                try:
+                    answer = await generate_grounded(
+                        question,
+                        registry,
+                        pack_context(registry.source_dicts()),
+                        trace,
+                        budget=budget,
+                        client=recorder,
+                    )
+                finally:
+                    if recorder:
+                        await recorder.close()
+                raw_claims = (recorder.raw or {}).get("claims", []) if recorder else []
+                draft = (
+                    "\n".join(
+                        c["text"][:1500]
+                        for c in raw_claims[:20]
+                        if isinstance(c, dict) and isinstance(c.get("text"), str)
+                    )
+                    if isinstance(raw_claims, list)
+                    else ""
                 )
                 row = {
                     "case": name,
@@ -426,13 +458,21 @@ async def run(destination, live=False):
                     "interface_calls": budget.calls,
                     "trace": trace.record,
                     "metrics": [],
+                    "raw_candidate_text": draft,
+                    "metric_target": None,
                     "source_boundary": "in_memory_public_fixture_not_live_web",
                 }
                 if live and answer.support_status in {"supported", "partial"}:
+                    row["metric_target"] = "published_grounded_answer"
                     row["metrics"] = await judge(
                         answer.text,
                         question,
                         [s.raw_text for s in registry.sources.values()],
+                    )
+                elif live and draft:
+                    row["metric_target"] = "unpublished_generated_candidate"
+                    row["metrics"] = await judge(
+                        draft, question, [s.raw_text for s in registry.sources.values()]
                     )
                 elif sources:
                     row["metrics"] = [
@@ -471,7 +511,19 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--model", help="Explicit local diagnostic model override")
+    parser.add_argument("--skip-ablation", action="store_true")
+    parser.add_argument(
+        "--cases",
+        nargs="+",
+        choices=[
+            "local_native_pdf",
+            "web_oa_fixture",
+            "web_abstract_partial",
+            "no_answer",
+            "conflicting_originals",
+        ],
+    )
     args = parser.parse_args()
     if args.model:
         settings.ollama_model = args.model
-    asyncio.run(run(args.output, args.live))
+    asyncio.run(run(args.output, args.live, args.skip_ablation, args.cases))

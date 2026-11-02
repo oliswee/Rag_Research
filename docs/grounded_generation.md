@@ -80,9 +80,14 @@ The first command runs public synthetic guards and a five-paper orchestration
 demo with fixed retrieval/model boundaries. It does not measure retrieval or
 model quality. `--live` permits only configured loopback Ollama, replays fixed
 candidates for whole-review/atomic ablation, then generates actual answers and
-applies DeepEval Faithfulness and Answer Relevancy to verified generated outputs.
+applies DeepEval Faithfulness and Answer Relevancy to actual generated outputs.
+Each metric record identifies a published grounded answer or an **unpublished
+candidate draft**. Draft scores never establish successful end-to-end QA: the
+production verifier can reject a semantically accurate draft with invalid IDs.
 `--model` explicitly overrides the local diagnostic model only. Outputs go to
 ignored local artifacts, including `generation_deepeval_results.jsonl`.
+`--skip-ablation` avoids repeating a completed replay; `--cases` selects a bounded
+subset of answer fixtures. These flags do not relax production citation checks.
 No credentials or paid cloud model is needed. Keep each run in a fresh output
 directory; JSONL appends preserve previous records. Scores, failures, versions,
 model choice and limitations belong in `backend/evaluation/m6_development.md`

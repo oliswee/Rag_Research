@@ -75,10 +75,10 @@
 
 **Files:** Update comparison/query types/API/UI and relevant React tests; add `docs/grounded_generation.md`, `backend/evaluation/m6_development.md`, `backend/evaluation/generation_benchmark.py`, deterministic public regression fixtures and separate metrics_history section11; ignored actual generation/DeepEval JSONL artifacts.
 
-- [ ] Read installed Next client docs and React/UI skills. RED/GREEN matrix explicit unknown/unsupported/comparability/source level/quotes/citation links/clarification/privacy controls; preserve selected scopes and avoid unsafe URLs/raw HTML. Browser desktop/mobile public fixtures.
-- [ ] Run labelled claim/citation matrix and whole-review versus atomic-batch ablation on fixed generated candidates, recording additional calls/rejection/false rejection with development-label limitations. Actual bounded local Ollama answers on local/fulltext,Web abstract,partial/no-answer and conflict fixtures; DeepEval Faithfulness+Answer Relevancy with model/version/template/temperature/threshold/status/tokens/cost/time; failure stays not_evaluated.
-- [ ] One fresh whole-branch reviewer after all tasks, one RED/GREEN important-fix pass, final full backend/frontend/lint/build/privacy checks. Preserve failures; no redundant full baseline (M5 exact-head CI already green).
-- [ ] Own commits/push and dependent Draft PR targeting M5; verify exact-head CI; update issue57/root milestone/ledger. Notify M6 engineering completion only with recorded evidence; no merge or M8 Gold claim.
+- [x] Read installed Next client docs and React/UI skills. RED/GREEN matrix explicit unknown/unsupported/comparability/source level/quotes/citation links/clarification/privacy controls; preserve selected scopes and avoid unsafe URLs/raw HTML. Browser desktop/mobile public fixtures.
+- [x] Run labelled claim/citation matrix and whole-review versus atomic-batch ablation on fixed generated candidates, recording additional calls/rejection/false rejection with development-label limitations. Actual bounded local Ollama answers on local/fulltext,Web abstract,partial/no-answer and conflict fixtures; DeepEval Faithfulness+Answer Relevancy with model/version/template/temperature/threshold/status/tokens/cost/time; failure stays not_evaluated.
+- [x] One fresh whole-branch reviewer after all tasks, one RED/GREEN important-fix pass, final full backend/frontend/lint/build/privacy checks. Preserve failures; no redundant full baseline (M5 exact-head CI already green).
+- [x] Own commits/push and dependent Draft PR targeting M5; verify exact-head CI; update issue57/root milestone/ledger. Notify M6 engineering completion only with recorded evidence; no merge or M8 Gold claim.
 
 ## Execution rulings
 

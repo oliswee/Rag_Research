@@ -1,56 +1,49 @@
-"""Evidence-based comparisons across selected local papers."""
+"""Verified matrix API with the same privacy and trace boundary as ordinary QA."""
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import Paper
-from app.workflows.source_query import compare_evidence, retrieve
+from app.routers.query import _capture_corpus_version, _enforce_local_only, _write_trace
+from app.schemas.query import QueryRequest
+from app.schemas.research import CompareRequest
+from app.services.evidence_routing import parse_policy
+from app.services.local_execution import local_only_request
+from app.services.retrieval_trace import RetrievalTrace
+from app.workflows.comparison import DEFAULT_QUESTION, run_comparison
 
 router = APIRouter(prefix="/api/research", tags=["research"])
-
-ROWS = [
-    "Common findings",
-    "Different conclusions",
-    "Methods and samples",
-    "Limitations and open questions",
-]
-QUESTIONS = [
-    "main results findings",
-    "conclusions results disagreement",
-    "methods study sample design",
-    "limitations future research",
-]
-
-
-class CompareRequest(BaseModel):
-    paper_ids: list[str] = Field(min_length=2, max_length=5)
-    question: str | None = None
 
 
 @router.post("/compare")
 async def compare(request: CompareRequest, db: AsyncSession = Depends(get_db)) -> dict:
-    if len(set(request.paper_ids)) != len(request.paper_ids):
-        raise HTTPException(422, "Choose distinct papers")
-    papers = [await db.get(Paper, paper_id) for paper_id in request.paper_ids]
-    if any(paper is None for paper in papers):
-        raise HTTPException(404, "One or more papers not found")
-    rows = []
-    for label, prompt in zip(ROWS, QUESTIONS, strict=True):
-        by_paper = {}
-        for paper in papers:
-            evidence, _ = await retrieve(
-                db,
-                (request.question + " " if request.question else "") + prompt,
-                [paper.id],
-                "bm25",
-                limit=3,
-            )
-            by_paper[paper.id] = evidence
-        cells = await compare_evidence(label, request.question, by_paper)
-        rows.append({"label": label, "cells": cells})
-    return {
-        "papers": [{"id": paper.id, "title": paper.title} for paper in papers],
-        "rows": rows,
-    }
+    policy = parse_policy(
+        QueryRequest(
+            query=request.question or DEFAULT_QUESTION,
+            intent="compare",
+            **request.model_dump(exclude={"question"}),
+        )
+    )
+    trace = RetrievalTrace(
+        policy.question,
+        {
+            **request.model_dump(),
+            "local_only": policy.local_only,
+            "only_uploaded": policy.only_uploaded,
+            "requested_mode": "hybrid",
+            "intent": policy.intent,
+        },
+        corpus_version="unversioned",
+    )
+    token = local_only_request.set(policy.local_only or policy.only_uploaded)
+    try:
+        _enforce_local_only(policy.local_only or policy.only_uploaded)
+        await _capture_corpus_version(db, trace)
+        return (await run_comparison(db, request, trace)).model_dump()
+    except Exception as exc:
+        trace.record_failure("comparison", exc)
+        trace.finish("error", trace.record["prompt_evidence_ids"])
+        raise
+    finally:
+        local_only_request.reset(token)
+        _write_trace(trace)

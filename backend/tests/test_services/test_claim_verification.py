@@ -154,3 +154,22 @@ def test_characteristics_need_their_own_original_quote_and_value():
     assert result.characteristics.population.value is None
     assert result.characteristics.study_design.value == "observational"
     assert result.characteristics.study_design.support_status == "unknown"
+
+
+def test_adjusted_characteristic_cannot_match_inside_unadjusted_word():
+    quote = "The study reports an unadjusted OR of 0.8."
+    result = check(
+        proposal(
+            quote,
+            quote,
+            characteristics={
+                "adjustment": {
+                    "value": "adjusted",
+                    "source_id": "web:one",
+                    "raw_quote": quote,
+                }
+            },
+        ),
+        registry(quote),
+    )
+    assert result.characteristics.adjustment.value is None

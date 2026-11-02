@@ -178,7 +178,7 @@ async def local_retrieval(
 
 
 async def run_local_web(
-    db, policy, history, trace, *, local_runner=None, searcher=None
+    db, policy, history, trace, *, local_runner=None, searcher=None, initial_local=None
 ):
     if policy.only_uploaded:
         statement = select(Paper.id).where(Paper.import_source.is_(None))
@@ -192,7 +192,11 @@ async def run_local_web(
 
     runner = local_runner or default_runner
     # This must happen before even constructing a provider client.
-    local = await runner(policy, history, trace)
+    local = (
+        initial_local
+        if initial_local is not None
+        else await runner(policy, history, trace)
+    )
     facts, identities = await corpus_facts(db, policy)
     assessment = assess_local(
         policy,

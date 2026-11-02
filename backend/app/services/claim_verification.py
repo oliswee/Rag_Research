@@ -214,7 +214,17 @@ def check_proposal(proposal, registry, *, paper_id=None):
                 if (
                     citation.paper_id != result.paper_id
                     or len(field["value"]) > 300
-                    or field["value"].casefold() not in citation.raw_quote.casefold()
+                    or not re.search(
+                        (
+                            r"(?<![A-Za-z0-9])"
+                            + re.escape(field["value"])
+                            + r"(?![A-Za-z0-9])"
+                        )
+                        if field["value"].isascii()
+                        else re.escape(field["value"]),
+                        citation.raw_quote,
+                        re.I,
+                    )
                 ):
                     continue
                 if scientific_reasons(

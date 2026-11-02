@@ -23,6 +23,7 @@ class WebEvidencePool:
     sources: list[dict] = field(default_factory=list)
     records: list[dict] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)
+    snapshots: tuple = ()
 
 
 def _ranges(text, size=1000):
@@ -225,7 +226,7 @@ async def build_web_evidence(
             version = "sha256:" + hashlib.sha256(abstract.encode()).hexdigest()
             for a, b in _ranges(abstract):
                 sources.append(_source(record, abstract[a:b], version, start=a))
-        pool.sources.extend(sources)
+        pool.sources.extend(sources[: max(0, 50 - len(pool.sources))])
         pool.records.append(record)
         pool.events.append(
             {
@@ -236,4 +237,7 @@ async def build_web_evidence(
         )
     if trace is not None:
         trace.record["web_events"].extend(pool.events)
+    from app.services.evidence_registry import seal_web_sources
+
+    pool.snapshots = seal_web_sources(pool.sources)
     return pool

@@ -45,6 +45,7 @@ class RoutingResult:
     assessment: object
     web_records: list[dict] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
+    web_snapshots: tuple = ()
 
 
 async def corpus_facts(db, policy):
@@ -277,6 +278,7 @@ async def run_local_web(
             search.candidates, policy, identities, trace=trace, budget=search.budget
         )
         result.web_records = pool.records
+        result.web_snapshots = pool.snapshots
         if pool.sources:
             # One common context budget. Local verifiable excerpts retain reservation.
             web = pool.sources[: max(0, 50 - len(local.packed.sources))]

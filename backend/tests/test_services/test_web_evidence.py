@@ -222,3 +222,21 @@ async def test_scoped_unknown_identity_never_becomes_factual():
         [candidate()], parse_policy(QueryRequest(query="memory", paper_ids=["a"])), ()
     )
     assert not pool.sources and not pool.records
+
+
+@pytest.mark.asyncio
+async def test_large_abstract_pool_seals_bounded_sources_without_losing_all_records():
+    candidates = [
+        candidate(
+            provider_id=f"W{i}",
+            doi=f"10.1234/{i}",
+            abstract="Memory accuracy improves. " * 600,
+        )
+        for i in range(4)
+    ]
+    pool = await build_web_evidence(
+        candidates, parse_policy(QueryRequest(query="memory")), ()
+    )
+    assert len(pool.records) == 4
+    assert 0 < len(pool.sources) <= 50
+    assert len(pool.snapshots) == len(pool.sources)

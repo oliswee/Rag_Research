@@ -48,9 +48,9 @@
 
 **Interfaces:** `publication_status(db,paper_id)->dict` defaults unknown; explicit `refresh_publication_status` uses a bounded official metadata request, never query-triggered network access. Parse verified relation/retraction events separately from titles. Store checked time/source URL/related DOI or arXiv/version and raw-event digest, not full external documents.
 
-- [ ] RED preprint/formal-version relation, wrong DOI/update direction, population mismatch, comparable conflict and unknown retraction fixtures; unsafe URL/missing identity/provider failure remains unknown.
-- [ ] Implement explicit source provenance, metadata retrieval deadline/size/attempt limit and unknown-safe UI; no similarity authority ranking, automatic import or background query network fetch.
-- [ ] GREEN source/compare/metadata regression; commit.
+- [x] RED preprint/formal-version relation, wrong DOI/update direction, population mismatch, comparable conflict and unknown retraction fixtures; unsafe URL/missing identity/provider failure remains unknown.
+- [x] Implement explicit source provenance, metadata retrieval deadline/size/attempt limit and unknown-safe UI; no similarity authority ranking, automatic import or background query network fetch.
+- [x] GREEN source/compare/metadata regression; commit.
 
 ## Task3 — Local answer feedback and synthetic regression roundtrips
 

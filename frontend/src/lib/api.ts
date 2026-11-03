@@ -3,6 +3,7 @@
  */
 
 import type {
+  PublicationRecord,
   ApiError,
   ApiRequestError as ApiRequestErrorType,
   PaperListParams,
@@ -25,6 +26,16 @@ import type {
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export function getPublicationStatus(paperId: string, signal?: AbortSignal): Promise<PublicationRecord> {
+  return request<PublicationRecord>(`/api/papers/${encodeURIComponent(paperId)}/publication`, { signal });
+}
+
+export function refreshPublicationStatus(paperId: string, signal?: AbortSignal): Promise<PublicationRecord> {
+  return request<PublicationRecord>(`/api/papers/${encodeURIComponent(paperId)}/publication/refresh`, {
+    method: "POST", body: JSON.stringify({local_only: false}), signal,
+  });
+}
 
 // ============================================================================
 // Error Handling

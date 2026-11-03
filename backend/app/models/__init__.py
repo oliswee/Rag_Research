@@ -4,6 +4,7 @@ from app.models.base import Base
 from app.models.maintenance import EmbeddingMemo, SourceDeletionJob, SourceSyncState
 from app.models.paper import Paper, PaperStatus, PaperType
 from app.models.pattern import Pattern, PatternStatus
+from app.models.publication import PublicationState
 from app.models.source import (
     ImportItem,
     ImportJob,
@@ -22,6 +23,7 @@ __all__ = [
     "EmbeddingMemo",
     "SourceDeletionJob",
     "SourceSyncState",
+    "PublicationState",
     "Paper",
     "PaperStatus",
     "PaperType",

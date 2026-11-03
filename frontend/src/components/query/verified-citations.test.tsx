@@ -42,3 +42,31 @@ it("links canonical local evidence and suppresses fake abstract page numbers", (
   expect(screen.queryByText("Page 99")).not.toBeInTheDocument();
   expect(screen.getAllByRole("link")).toHaveLength(1);
 });
+
+it("makes a known retraction notice visible before quotations are expanded", () => {
+  const { container } = render(
+    <VerifiedCitations
+      citations={[
+        {
+          citation_id: "c",
+          source_id: "chunk",
+          paper_id: "p",
+          source_origin: "local",
+          evidence_type: "full_text",
+          source_url: "/api/sources/chunks/chunk",
+          raw_quote: "Original source finding.",
+          span: [],
+          pdf_page: 1,
+          version: "v1",
+          support_status: "supported",
+          publication_status: "retracted",
+          publication_source_url: "https://api.crossref.org/works/10.1234/a",
+          publication_checked_at: "2026-11-03T00:00:00Z",
+        },
+      ]}
+    />
+  );
+  expect(container.querySelector("summary")).toHaveTextContent(
+    "Retraction notice reported"
+  );
+});

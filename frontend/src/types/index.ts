@@ -210,6 +210,26 @@ export interface Citation {
   support_status: string;
   retrieved_at?: string | null;
   license?: string | null;
+  publication_status?: "unknown" | "retracted" | "withdrawn" | "expression_of_concern";
+  publication_source_url?: string | null;
+  publication_checked_at?: string | null;
+  publication_stale?: boolean;
+}
+
+export interface PublicationRecord {
+  paper_id: string;
+  doi: string | null;
+  status: "unknown" | "retracted" | "withdrawn" | "expression_of_concern";
+  relations: {kind: string; doi: string; url: string}[];
+  updates: {kind: string; date: string; notice_doi: string; url: string}[];
+  notices: string[];
+  checked_at: string | null;
+  source_url?: string | null;
+  source_version?: string | null;
+  source_date?: string | null;
+  refresh_error?: string | null;
+  stale?: boolean;
+  arxiv_ids?: string[];
 }
 
 export interface AtomicClaim {

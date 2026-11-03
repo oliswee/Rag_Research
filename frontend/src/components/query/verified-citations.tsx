@@ -2,13 +2,28 @@
 
 import type { Citation } from "@/types";
 import { sourceUrl } from "@/lib/source-url";
+import { publicationLabel } from "@/lib/publication";
 
 export function VerifiedCitations({ citations }: { citations: Citation[] }) {
   if (!citations.length) return null;
+  const notices = [
+    ...new Set(
+      citations
+        .filter(
+          (c) => c.publication_status && c.publication_status !== "unknown"
+        )
+        .map((c) => publicationLabel(c.publication_status))
+    ),
+  ];
   return (
     <details className="mt-3 rounded-lg border bg-muted/20 p-3 text-xs">
       <summary className="cursor-pointer font-medium">
         Original quotations · {citations.length}
+        {notices.map((notice) => (
+          <span key={notice} className="ml-2 text-amber-700">
+            · {notice}
+          </span>
+        ))}
       </summary>
       <div className="mt-3 space-y-4">
         {citations.map((citation) => {
@@ -57,6 +72,32 @@ export function VerifiedCitations({ citations }: { citations: Citation[] }) {
                   className="inline-block font-medium text-emerald-700 hover:underline"
                 >
                   Open original source
+                </a>
+              )}
+              <p
+                className={
+                  citation.publication_status &&
+                  citation.publication_status !== "unknown"
+                    ? "font-medium text-amber-700"
+                    : "text-muted-foreground"
+                }
+              >
+                {publicationLabel(citation.publication_status)}
+              </p>
+              {citation.publication_checked_at && (
+                <p className="text-muted-foreground">
+                  Status checked {citation.publication_checked_at.slice(0, 10)}
+                  {citation.publication_stale ? " · Refresh unavailable" : ""}
+                </p>
+              )}
+              {sourceUrl(citation.publication_source_url) && (
+                <a
+                  className="inline-block text-emerald-700 hover:underline"
+                  href={sourceUrl(citation.publication_source_url)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Publication notice source
                 </a>
               )}
             </article>

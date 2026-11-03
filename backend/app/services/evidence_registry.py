@@ -15,6 +15,7 @@ from app.models import (
 )
 from app.schemas.evidence import Citation, EvidenceSnapshot, EvidenceSpan
 from app.services.academic_search import normalize_doi, safe_url
+from app.services.publication_status import citation_status
 from app.services.source_anchors import resolve_child
 
 
@@ -154,6 +155,10 @@ class EvidenceRegistry:
             version=source.version,
             retrieved_at=source.retrieved_at,
             license=source.license,
+            publication_status=source.publication_status,
+            publication_source_url=source.publication_source_url,
+            publication_checked_at=source.publication_checked_at,
+            publication_stale=source.publication_stale,
         )
 
     def source_dicts(self):
@@ -187,6 +192,10 @@ class EvidenceRegistry:
                 "license": s.license,
                 "retrieved_at": s.retrieved_at,
                 "year": s.year,
+                "publication_status": s.publication_status,
+                "publication_source_url": s.publication_source_url,
+                "publication_checked_at": s.publication_checked_at,
+                "publication_stale": s.publication_stale,
             }
             for s in self.sources.values()
         ]
@@ -205,6 +214,7 @@ async def build_registry(
         raise ValueError("Too many verification sources")
     trusted_web = {s.source_id: s for s in web_snapshots}
     accepted, rejections = {}, []
+    publication_cache = {}
     for source in sources:
         source_id = source.get("chunk_id")
         try:
@@ -278,6 +288,10 @@ async def build_registry(
                     title=paper.title,
                     doi=doi,
                 )
+            identity = (snapshot.paper_id, snapshot.doi)
+            if identity not in publication_cache:
+                publication_cache[identity] = await citation_status(db, *identity)
+            snapshot = snapshot.model_copy(update=publication_cache[identity])
             if source_id in accepted and snapshot != accepted[source_id]:
                 accepted.pop(source_id)
                 raise ValueError("Duplicate source identity conflict")

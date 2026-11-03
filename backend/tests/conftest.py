@@ -31,10 +31,16 @@ def offline_academic_workflow_boundary(monkeypatch):
     from app.services.academic_search import SearchResult
 
     class OfflineAcademicSearch:
+        def __init__(self, *args, **kwargs):
+            pass
+
         async def search(self, policy, identities=()):
             return SearchResult(events=[{"status": "offline_test_boundary"}])
 
     monkeypatch.setattr("app.workflows.local_web.AcademicSearch", OfflineAcademicSearch)
+    monkeypatch.setattr(
+        "app.workflows.comparison.AcademicSearch", OfflineAcademicSearch
+    )
 
 
 @pytest.fixture(autouse=True)

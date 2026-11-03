@@ -313,8 +313,8 @@ export async function retryImport(jobId: string): Promise<void> {
   return request<void>(`/api/discovery/imports/${jobId}/retry`, { method: "POST" });
 }
 
-export async function comparePapers(paperIds: string[], question?: string): Promise<CompareResult> {
-  return request<CompareResult>("/api/research/compare", { method: "POST", body: JSON.stringify({ paper_ids: paperIds, question }) });
+export async function comparePapers(paperIds: string[], question?: string, options?: {local_only?: boolean; only_uploaded?: boolean; latest?: boolean}): Promise<CompareResult> {
+  return request<CompareResult>("/api/research/compare", { method: "POST", body: JSON.stringify({ paper_ids: paperIds, question, ...options }) });
 }
 
 // ============================================================================

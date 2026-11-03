@@ -45,6 +45,7 @@ class RoutingResult:
     assessment: object
     web_records: list[dict] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
+    web_snapshots: tuple = ()
 
 
 async def corpus_facts(db, policy):
@@ -177,7 +178,7 @@ async def local_retrieval(
 
 
 async def run_local_web(
-    db, policy, history, trace, *, local_runner=None, searcher=None
+    db, policy, history, trace, *, local_runner=None, searcher=None, initial_local=None
 ):
     if policy.only_uploaded:
         statement = select(Paper.id).where(Paper.import_source.is_(None))
@@ -191,7 +192,11 @@ async def run_local_web(
 
     runner = local_runner or default_runner
     # This must happen before even constructing a provider client.
-    local = await runner(policy, history, trace)
+    local = (
+        initial_local
+        if initial_local is not None
+        else await runner(policy, history, trace)
+    )
     facts, identities = await corpus_facts(db, policy)
     assessment = assess_local(
         policy,
@@ -277,6 +282,7 @@ async def run_local_web(
             search.candidates, policy, identities, trace=trace, budget=search.budget
         )
         result.web_records = pool.records
+        result.web_snapshots = pool.snapshots
         if pool.sources:
             # One common context budget. Local verifiable excerpts retain reservation.
             web = pool.sources[: max(0, 50 - len(local.packed.sources))]

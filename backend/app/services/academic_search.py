@@ -125,6 +125,8 @@ class WebBudget:
     attempts: int = 0
     events: list[dict] = field(default_factory=list)
     retried: set[str] = field(default_factory=set)
+    providers: set[str] = field(default_factory=set)
+    pdf_attempted: bool = False
 
     @property
     def remaining(self):
@@ -144,9 +146,10 @@ class SearchResult:
 
 
 class AcademicSearch:
-    def __init__(self, client=None, *, retry_delay=1):
+    def __init__(self, client=None, *, retry_delay=1, budget=None):
         self.client = client
         self.retry_delay = retry_delay
+        self.budget = budget
 
     async def _fetch(self, client, budget, provider, url, params, *, xml=False):
         global _ARXIV_LAST
@@ -334,7 +337,12 @@ class AcademicSearch:
     async def search(self, policy, identities=()):
         if policy.web_prohibited:
             return SearchResult(events=[{"status": "prohibited"}])
-        budget = WebBudget()
+        budget = self.budget or WebBudget()
+        event_start = len(budget.events)
+        if budget.remaining <= 0 or budget.attempts >= settings.web_max_attempts:
+            return SearchResult(
+                events=[{"status": "shared_web_budget_exhausted"}], budget=budget
+            )
         candidates = []
         providers = (
             (policy.provider,)
@@ -369,8 +377,12 @@ class AcademicSearch:
             follow_redirects=False,
         )
         try:
-            async with asyncio.timeout(settings.web_deadline_seconds):
+            async with asyncio.timeout(budget.remaining):
                 for provider in providers:
+                    if provider not in budget.providers and len(budget.providers) >= 2:
+                        budget.events.append({"status": "provider_budget_exhausted"})
+                        continue
+                    budget.providers.add(provider)
                     for query in queries:
                         try:
                             rows = await self._provider(
@@ -430,4 +442,4 @@ class AcademicSearch:
                 key=lambda c: (c.get("year") or 0, c.get("published_at") or ""),
                 reverse=True,
             )
-        return SearchResult(result[:16], budget.events, budget)
+        return SearchResult(result[:16], list(budget.events[event_start:]), budget)

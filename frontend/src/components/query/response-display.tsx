@@ -7,6 +7,8 @@ import type { QueryResponse, SourceReference } from "@/types";
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { PatternDetailModal } from "./pattern-detail-modal";
+import { VerifiedCitations } from "./verified-citations";
+import { sourceUrl } from "@/lib/source-url";
 
 export interface ResponseDisplayProps {
   response: QueryResponse;
@@ -23,17 +25,7 @@ const CONFIDENCE_VARIANTS: Record<
 };
 
 function safeSourceUrl(value: string | null) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return ["https:", "http:"].includes(url.protocol) &&
-      !url.username &&
-      !url.password
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
+  return sourceUrl(value);
 }
 
 function EvidenceAccess({
@@ -139,6 +131,29 @@ export function ResponseDisplay({
     const parts = response.response.split(/(\[C:[^\]]+\])/g);
     return (
       <div className="space-y-5">
+        {response.support_status && (
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <span className="rounded-md border px-2 py-1 font-medium">
+              {response.support_status === "clarification"
+                ? "Scope needed"
+                : response.support_status === "supported"
+                  ? "Verified answer"
+                  : response.support_status === "partial"
+                    ? "Verified partial answer"
+                    : response.support_status === "evidence_only"
+                      ? "Evidence only · no verified conclusion"
+                      : "Insufficient evidence"}
+            </span>
+            {response.support_status !== "supported" && (
+              <a
+                href="/discover"
+                className="font-medium text-emerald-700 hover:underline"
+              >
+                Find papers
+              </a>
+            )}
+          </div>
+        )}
         {response.routing && (
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
             <p className="font-medium text-foreground">
@@ -194,6 +209,7 @@ export function ResponseDisplay({
             Searched as: {response.retrieval_query}
           </p>
         )}
+        <VerifiedCitations citations={response.citations || []} />
         {(response.rewrite_status === "unavailable" ||
           response.rewrite_status === "failed") && (
           <p className="text-xs text-muted-foreground">

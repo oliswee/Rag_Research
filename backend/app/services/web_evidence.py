@@ -23,6 +23,7 @@ class WebEvidencePool:
     sources: list[dict] = field(default_factory=list)
     records: list[dict] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)
+    snapshots: tuple = ()
 
 
 def _ranges(text, size=1000):
@@ -87,7 +88,6 @@ async def build_web_evidence(
         return pool
     budget = budget or WebBudget()
     fetcher, parser = fetcher or download_pdf, parser or parse_temporary_pdf
-    pdf_attempted = False
     seen = set()
     for candidate in candidates[:16]:
         url = safe_url(candidate.get("source_url"))
@@ -148,8 +148,8 @@ async def build_web_evidence(
         scoped_native = bool(identity and identity.document_version)
         sources = []
         pdf_url = licensed_location(candidate)
-        if pdf_url and not pdf_attempted and budget.remaining > 0:
-            pdf_attempted = True
+        if pdf_url and not budget.pdf_attempted and budget.remaining > 0:
+            budget.pdf_attempted = True
             try:
                 async with asyncio.timeout(budget.remaining):
                     async with asyncio.timeout(
@@ -225,7 +225,7 @@ async def build_web_evidence(
             version = "sha256:" + hashlib.sha256(abstract.encode()).hexdigest()
             for a, b in _ranges(abstract):
                 sources.append(_source(record, abstract[a:b], version, start=a))
-        pool.sources.extend(sources)
+        pool.sources.extend(sources[: max(0, 50 - len(pool.sources))])
         pool.records.append(record)
         pool.events.append(
             {
@@ -236,4 +236,7 @@ async def build_web_evidence(
         )
     if trace is not None:
         trace.record["web_events"].extend(pool.events)
+    from app.services.evidence_registry import seal_web_sources
+
+    pool.snapshots = seal_web_sources(pool.sources)
     return pool

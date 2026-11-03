@@ -1,0 +1,8 @@
+[
+  {"id":"supported_accuracy","quote":"Memory accuracy is 95 percent.","claim":"Memory accuracy is 95 percent.","supported":true},
+  {"id":"causal_escalation","quote":"Treatment was associated with lower risk.","claim":"Treatment caused lower risk.","supported":false},
+  {"id":"direction_flip","quote":"Risk decreased in the study.","claim":"Risk increased in the study.","supported":false},
+  {"id":"wrong_sample","quote":"The sample included 200 patients.","claim":"The sample included 500 patients.","supported":false},
+  {"id":"unstated_result","quote":"The study evaluated memory accuracy.","claim":"The study achieved excellent memory accuracy.","supported":false},
+  {"id":"supported_association","quote":"Treatment was associated with lower risk.","claim":"Treatment was associated with lower risk.","supported":true}
+]

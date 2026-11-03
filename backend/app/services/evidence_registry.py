@@ -6,9 +6,16 @@ from types import MappingProxyType
 
 from sqlalchemy import select
 
-from app.models import Paper, PaperChunk, PaperIdentifier, PaperStatus
+from app.models import (
+    Paper,
+    PaperChunk,
+    PaperIdentifier,
+    PaperStatus,
+    SourceIndexGeneration,
+)
 from app.schemas.evidence import Citation, EvidenceSnapshot, EvidenceSpan
 from app.services.academic_search import normalize_doi, safe_url
+from app.services.publication_status import citation_status
 from app.services.source_anchors import resolve_child
 
 
@@ -17,6 +24,10 @@ def _hash(text):
 
 
 def _snapshot(source, *, origin, title=None, doi=None):
+    from app.services.response_safety import contains_credential
+
+    if contains_credential(source) or contains_credential(title or ""):
+        raise ValueError("Credential-bearing evidence cannot be returned")
     text = source.get("excerpt")
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         raise ValueError("Invalid original excerpt")
@@ -148,6 +159,10 @@ class EvidenceRegistry:
             version=source.version,
             retrieved_at=source.retrieved_at,
             license=source.license,
+            publication_status=source.publication_status,
+            publication_source_url=source.publication_source_url,
+            publication_checked_at=source.publication_checked_at,
+            publication_stale=source.publication_stale,
         )
 
     def source_dicts(self):
@@ -181,6 +196,10 @@ class EvidenceRegistry:
                 "license": s.license,
                 "retrieved_at": s.retrieved_at,
                 "year": s.year,
+                "publication_status": s.publication_status,
+                "publication_source_url": s.publication_source_url,
+                "publication_checked_at": s.publication_checked_at,
+                "publication_stale": s.publication_stale,
             }
             for s in self.sources.values()
         ]
@@ -199,6 +218,7 @@ async def build_registry(
         raise ValueError("Too many verification sources")
     trusted_web = {s.source_id: s for s in web_snapshots}
     accepted, rejections = {}, []
+    publication_cache = {}
     for source in sources:
         source_id = source.get("chunk_id")
         try:
@@ -234,6 +254,17 @@ async def build_registry(
                 original = await resolve_child(db, child, allow_parent_failure=True)
                 if original.get("status") == "retired":
                     raise ValueError("Retired generation cannot support new findings")
+                if child.index_version == "legacy" and await db.scalar(
+                    select(SourceIndexGeneration.index_version)
+                    .where(
+                        SourceIndexGeneration.paper_id == paper.id,
+                        SourceIndexGeneration.is_active.is_(True),
+                    )
+                    .limit(1)
+                ):
+                    raise ValueError(
+                        "Superseded legacy source cannot support new findings"
+                    )
                 for key in (
                     "paper_id",
                     "excerpt",
@@ -261,6 +292,10 @@ async def build_registry(
                     title=paper.title,
                     doi=doi,
                 )
+            identity = (snapshot.paper_id, snapshot.doi)
+            if identity not in publication_cache:
+                publication_cache[identity] = await citation_status(db, *identity)
+            snapshot = snapshot.model_copy(update=publication_cache[identity])
             if source_id in accepted and snapshot != accepted[source_id]:
                 accepted.pop(source_id)
                 raise ValueError("Duplicate source identity conflict")

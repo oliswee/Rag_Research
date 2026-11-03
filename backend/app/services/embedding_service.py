@@ -10,6 +10,7 @@ from openai import APIConnectionError, APIError, RateLimitError
 
 from app.config import settings
 from app.services.local_execution import local_only_request
+from app.services.request_budget import current_budget
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class EmbeddingService:
             raise ValueError("OPENAI_API_KEY not configured")
 
         self.client = (
-            openai.AsyncOpenAI(api_key=self.api_key)
+            openai.AsyncOpenAI(api_key=self.api_key, max_retries=0)
             if self.provider == "openai"
             else None
         )
@@ -118,7 +119,10 @@ class EmbeddingService:
 
         if self._local_model is None:
             self._local_model = TextEmbedding(
-                model_name=self.model, local_files_only=local_only_request.get()
+                model_name=self.model,
+                cache_dir=settings.fastembed_cache_dir,
+                local_files_only=local_only_request.get(),
+                threads=2,
             )
         return [vector.tolist() for vector in self._local_model.embed(texts)]
 
@@ -178,6 +182,9 @@ class EmbeddingService:
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
+            budget = current_budget.get()
+            if budget is not None:
+                budget.reserve_model(text, 0, provider="openai", embedding=True)
             try:
                 response = await self.client.embeddings.create(
                     model=self.model,
@@ -298,6 +305,11 @@ class EmbeddingService:
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
+            budget = current_budget.get()
+            if budget is not None:
+                budget.reserve_model(
+                    "".join(texts), 0, provider="openai", embedding=True
+                )
             try:
                 response = await self.client.embeddings.create(
                     model=self.model,

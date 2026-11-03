@@ -90,6 +90,7 @@ class QueryResponse(BaseModel):
     uncertainty: list[str] = Field(default_factory=list)
     clarification: dict | None = None
     discovery_url: str = "/discover"
+    feedback_available: bool = False
     retrieval_status: str | None = None
     rewrite_status: Literal["disabled", "applied", "unavailable", "failed"] | None = (
         None

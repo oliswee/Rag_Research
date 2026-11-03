@@ -7,8 +7,10 @@ from app.db import get_db
 from app.routers.query import _capture_corpus_version, _enforce_local_only, _write_trace
 from app.schemas.query import QueryRequest
 from app.schemas.research import CompareRequest
+from app.services.answer_feedback import record_run
 from app.services.evidence_routing import parse_policy
 from app.services.local_execution import local_only_request
+from app.services.request_budget import request_limits
 from app.services.retrieval_trace import RetrievalTrace
 from app.workflows.comparison import DEFAULT_QUESTION, run_comparison
 
@@ -16,6 +18,7 @@ router = APIRouter(prefix="/api/research", tags=["research"])
 
 
 @router.post("/compare")
+@request_limits
 async def compare(request: CompareRequest, db: AsyncSession = Depends(get_db)) -> dict:
     policy = parse_policy(
         QueryRequest(
@@ -39,7 +42,16 @@ async def compare(request: CompareRequest, db: AsyncSession = Depends(get_db)) -
     try:
         _enforce_local_only(policy.local_only or policy.only_uploaded)
         await _capture_corpus_version(db, trace)
-        return (await run_comparison(db, request, trace)).model_dump()
+        response = (await run_comparison(db, request, trace)).model_dump()
+        try:
+            await record_run(db, trace, response, paper_ids=request.paper_ids)
+        except Exception as exc:
+            await db.rollback()
+            trace.record_failure("feedback_manifest", exc)
+            response["notices"].append(
+                "Local feedback storage is unavailable for this run."
+            )
+        return response
     except Exception as exc:
         trace.record_failure("comparison", exc)
         trace.finish("error", trace.record["prompt_evidence_ids"])

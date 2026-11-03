@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { PaperResponse, PaperStatus, PaperType } from "@/types";
 import { Calendar, Eye, FileText, Trash2, User } from "lucide-react";
+import { PublicationStatusPanel } from "./publication-status";
 
 const STATUS_VARIANTS: Record<PaperStatus, "default" | "secondary" | "success" | "warning"> = {
   processing: "warning",
@@ -99,6 +100,7 @@ export function PaperCard({ paper, onView, onDelete, disabled }: PaperCardProps)
             </Button>
           </div>
         </div>
+        <PublicationStatusPanel paperId={paper.id} />
       </CardContent>
     </Card>
   );

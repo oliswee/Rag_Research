@@ -55,3 +55,4 @@ class ComparisonResponse(BaseModel):
     notices: list[str] = Field(default_factory=list)
     web_records: list[dict] = Field(default_factory=list)
     verification: dict = Field(default_factory=dict)
+    feedback_available: bool = False

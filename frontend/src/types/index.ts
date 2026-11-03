@@ -175,6 +175,8 @@ export interface SourceReference {
  * Response from query endpoint.
  */
 export interface QueryResponse {
+  run_id?: string;
+  feedback_available?: boolean;
   session_id: string;
   response: string;
   sources: SourceReference[];
@@ -210,6 +212,26 @@ export interface Citation {
   support_status: string;
   retrieved_at?: string | null;
   license?: string | null;
+  publication_status?: "unknown" | "retracted" | "withdrawn" | "expression_of_concern";
+  publication_source_url?: string | null;
+  publication_checked_at?: string | null;
+  publication_stale?: boolean;
+}
+
+export interface PublicationRecord {
+  paper_id: string;
+  doi: string | null;
+  status: "unknown" | "retracted" | "withdrawn" | "expression_of_concern";
+  relations: {kind: string; doi: string; url: string}[];
+  updates: {kind: string; date: string; notice_doi: string; url: string}[];
+  notices: string[];
+  checked_at: string | null;
+  source_url?: string | null;
+  source_version?: string | null;
+  source_date?: string | null;
+  refresh_error?: string | null;
+  stale?: boolean;
+  arxiv_ids?: string[];
 }
 
 export interface AtomicClaim {
@@ -230,6 +252,7 @@ export interface ComparisonAssessment {
 }
 
 export interface WebRecord {
+  feedback_source_id?: string;
   paper_id: string;
   title: string;
   source_url: string | null;
@@ -304,6 +327,7 @@ export interface ImportJob {
 }
 
 export interface CompareResult {
+  feedback_available?: boolean;
   run_id?: string;
   papers: { id: string; title: string }[];
   rows: { label: string; cells: { paper_id: string; text: string; evidence: Evidence[]; claims?: AtomicClaim[]; citations?: Citation[]; support_status?: string; uncertainty?: string[] }[]; comparisons?: ComparisonAssessment[] }[];
@@ -311,6 +335,30 @@ export interface CompareResult {
   notices?: string[];
   web_records?: WebRecord[];
   verification?: {calls?: number};
+}
+
+export type FeedbackReason = "wrong_paper" | "missed_evidence" | "unsupported_citation" | "incorrect_interpretation" | "outdated_conflicting" | "web_result_irrelevant";
+export interface FeedbackSource {
+  source_id: string;
+  paper_id: string;
+  source_origin: "local" | "web";
+  evidence_type: "full_text" | "abstract_only" | "metadata_only";
+  source_url: string | null;
+  doi?: string | null;
+}
+export interface FeedbackManifest {
+  run_id: string;
+  config_version: string;
+  sources: FeedbackSource[];
+}
+export interface FeedbackRequest {
+  run_id: string;
+  reason: FeedbackReason;
+  source_id: string | null;
+}
+export interface FeedbackReceipt {
+  id: string;
+  review_status: "needs_review";
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@
 
 import type { CompareResult, ComparisonAssessment } from "@/types";
 import { VerifiedCitations } from "@/components/query/verified-citations";
+import { AnswerFeedback } from "@/components/query/answer-feedback";
 import { sourceUrl } from "@/lib/source-url";
 
 const STATUS: Record<ComparisonAssessment["status"], string> = {
@@ -246,6 +247,7 @@ export function ComparisonMatrix({ result }: { result: CompareResult }) {
           Find papers or full-text access
         </a>
       )}
+      {result.feedback_available && result.run_id && <AnswerFeedback runId={result.run_id} />}
     </div>
   );
 }

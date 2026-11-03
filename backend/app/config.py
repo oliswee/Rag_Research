@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     # Local embeddings are the default; OpenAI remains an explicit option.
     embedding_provider: str = "fastembed"
     fastembed_model: str = "BAAI/bge-small-en-v1.5"
+    fastembed_cache_dir: str = "data/models/embedding"
 
     # Database
     database_url: str = "sqlite:///./data/research.db"
@@ -98,6 +99,15 @@ class Settings(BaseSettings):
     verification_input_bytes: int = Field(131072, ge=128, le=131072)
     verification_deadline_seconds: float = Field(180, gt=0, le=180)
     verification_call_timeout_seconds: float = Field(30, gt=0, le=30)
+    request_deadline_seconds: float = Field(240, gt=0, le=300)
+    request_max_model_attempts: int = Field(12, ge=1, le=20)
+    request_max_input_bytes: int = Field(262144, ge=128, le=1048576)
+    request_max_output_tokens: int = Field(16384, ge=128, le=32768)
+    request_max_external_attempts: int = Field(12, ge=0, le=24)
+    request_max_currency: float | None = Field(None, ge=0)
+    request_input_price_per_million: float | None = Field(None, ge=0)
+    request_output_price_per_million: float | None = Field(None, ge=0)
+    request_embedding_price_per_million: float | None = Field(None, ge=0)
 
     # Qdrant
     qdrant_host: str = "localhost"

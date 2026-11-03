@@ -113,6 +113,17 @@ def configuration_snapshot() -> tuple[str, dict]:
             "deadline_seconds": settings.verification_deadline_seconds,
             "call_timeout_seconds": settings.verification_call_timeout_seconds,
         },
+        "request_budget": {
+            "deadline_seconds": settings.request_deadline_seconds,
+            "model_attempts": settings.request_max_model_attempts,
+            "input_bytes": settings.request_max_input_bytes,
+            "output_tokens": settings.request_max_output_tokens,
+            "external_attempts": settings.request_max_external_attempts,
+            "currency_ceiling": settings.request_max_currency,
+            "input_price_per_million": settings.request_input_price_per_million,
+            "output_price_per_million": settings.request_output_price_per_million,
+            "embedding_price_per_million": settings.request_embedding_price_per_million,
+        },
     }
     return "sha256:" + digest(manifest), manifest
 

@@ -8,6 +8,7 @@ import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { PatternDetailModal } from "./pattern-detail-modal";
 import { VerifiedCitations } from "./verified-citations";
+import { AnswerFeedback } from "./answer-feedback";
 import { sourceUrl } from "@/lib/source-url";
 
 export interface ResponseDisplayProps {
@@ -312,6 +313,7 @@ export function ResponseDisplay({
             </div>
           </details>
         )}
+        {response.feedback_available && response.run_id && <AnswerFeedback runId={response.run_id} />}
       </div>
     );
   }
@@ -411,6 +413,7 @@ export function ResponseDisplay({
         )}
 
       {/* Pattern detail modal */}
+      {response.feedback_available && response.run_id && <AnswerFeedback runId={response.run_id} />}
       <PatternDetailModal
         patternId={selectedPatternId}
         relevanceScore={selectedRelevanceScore}

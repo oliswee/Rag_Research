@@ -8,6 +8,9 @@ SupportStatus = Literal[
     "supported", "contradicted", "insufficient_evidence", "unsupported", "unknown"
 ]
 EvidenceType = Literal["full_text", "abstract_only", "metadata_only"]
+PublicationStatus = Literal[
+    "unknown", "retracted", "withdrawn", "expression_of_concern"
+]
 
 
 class EvidenceSpan(BaseModel):
@@ -48,6 +51,10 @@ class EvidenceSnapshot(BaseModel):
     parent_id: str | None = None
     parent_text: str | None = None
     parent_spans: tuple[EvidenceSpan, ...] = ()
+    publication_status: PublicationStatus = "unknown"
+    publication_source_url: str | None = None
+    publication_checked_at: str | None = None
+    publication_stale: bool = False
 
 
 class Citation(BaseModel):
@@ -66,6 +73,10 @@ class Citation(BaseModel):
     support_status: SupportStatus = "supported"
     retrieved_at: str | None = None
     license: str | None = None
+    publication_status: PublicationStatus = "unknown"
+    publication_source_url: str | None = None
+    publication_checked_at: str | None = None
+    publication_stale: bool = False
 
 
 class Characteristic(BaseModel):

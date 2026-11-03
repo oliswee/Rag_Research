@@ -198,3 +198,59 @@ async def test_comparison_rejects_cross_paper_citation(monkeypatch):
     )
     assert cells[0]["text"] == "Insufficient evidence found"
     assert cells[0]["evidence"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "claim",
+    ["The accuracy is 99 percent.", "The full text proves accuracy is 95 percent."],
+)
+async def test_web_abstract_cannot_upgrade_access_or_invent_numbers(monkeypatch, claim):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "test")
+
+    class FakeLLM:
+        async def complete_json(self, **kwargs):
+            if "supported_indices" in kwargs["system_prompt"]:
+                return {"supported_indices": [0]}
+            return {
+                "claims": [
+                    {
+                        "text": claim,
+                        "source_ids": ["web:1"],
+                        "supporting_quotes": {
+                            "web:1": "Memory accuracy is 95 percent."
+                        },
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.services.llm_client.LLMClient", FakeLLM)
+    answer, used = await answer_from_evidence(
+        "accuracy?",
+        [
+            {
+                "chunk_id": "web:1",
+                "paper_id": "p",
+                "title": "Memory",
+                "content_scope": "abstract",
+                "evidence_level": "abstract_only",
+                "page_start": None,
+                "excerpt": "Memory accuracy is 95 percent.",
+            }
+        ],
+    )
+    assert used == [] and claim not in answer
+
+
+@pytest.mark.asyncio
+async def test_web_metadata_never_triggers_factual_model(monkeypatch):
+    def forbidden():
+        pytest.fail("Metadata reached generation")
+
+    monkeypatch.setattr("app.services.llm_client.LLMClient", forbidden)
+    answer, used = await answer_from_evidence(
+        "experiments?", [{"evidence_level": "metadata_only"}]
+    )
+    assert used == []

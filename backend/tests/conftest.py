@@ -26,6 +26,18 @@ def legacy_provider_defaults(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def offline_academic_workflow_boundary(monkeypatch):
+    """No live academic HTTP in unit/API suites; adapter tests exercise real parsing."""
+    from app.services.academic_search import SearchResult
+
+    class OfflineAcademicSearch:
+        async def search(self, policy, identities=()):
+            return SearchResult(events=[{"status": "offline_test_boundary"}])
+
+    monkeypatch.setattr("app.workflows.local_web.AcademicSearch", OfflineAcademicSearch)
+
+
+@pytest.fixture(autouse=True)
 def offline_reranker_boundary(monkeypatch):
     """API/unit tests pin slow inference; CLI benchmarks use real local weights."""
 

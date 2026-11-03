@@ -12,29 +12,112 @@ import { AlertCircle, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 const SESSION_KEY = "foliotrace-session-id";
+const SCOPE_KEY = "foliotrace-query-scope-v1";
+type Provider = "" | "openalex" | "semantic_scholar" | "pubmed" | "arxiv";
+interface SavedScope {
+  sessionId: string;
+  selectedPapers: string[];
+  yearFrom: string;
+  yearTo: string;
+  localOnly: boolean;
+  onlyUploaded: boolean;
+  latest: boolean;
+  provider: Provider;
+}
+
+function readSavedScope(): SavedScope | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(sessionStorage.getItem(SCOPE_KEY) || "null");
+    if (
+      !value ||
+      typeof value.sessionId !== "string" ||
+      value.sessionId !== sessionStorage.getItem(SESSION_KEY) ||
+      !Array.isArray(value.selectedPapers) ||
+      value.selectedPapers.length > 100 ||
+      !value.selectedPapers.every(
+        (id: unknown) => typeof id === "string" && id.length <= 200
+      ) ||
+      typeof value.localOnly !== "boolean" ||
+      typeof value.onlyUploaded !== "boolean" ||
+      typeof value.latest !== "boolean" ||
+      !["", "openalex", "semantic_scholar", "pubmed", "arxiv"].includes(
+        value.provider
+      ) ||
+      typeof value.yearFrom !== "string" ||
+      typeof value.yearTo !== "string" ||
+      !/^\d{0,4}$/.test(value.yearFrom) ||
+      !/^\d{0,4}$/.test(value.yearTo)
+    )
+      return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 export default function QueryPage() {
+  const [savedScope] = useState(readSavedScope);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(() =>
-    typeof window === "undefined" ? null : sessionStorage.getItem(SESSION_KEY)
+  const [sessionId, setSessionId] = useState<string | null>(
+    savedScope?.sessionId || null
   );
   const [papers, setPapers] = useState<PaperResponse[]>([]);
   const [paperFilter, setPaperFilter] = useState("");
-  const [selectedPapers, setSelectedPapers] = useState<string[]>([]);
-  const [yearFrom, setYearFrom] = useState("");
-  const [yearTo, setYearTo] = useState("");
-  const [provider, setProvider] = useState<"" | "openalex" | "semantic_scholar" | "pubmed" | "arxiv">("");
+  const [selectedPapers, setSelectedPapers] = useState<string[]>(
+    savedScope?.selectedPapers || []
+  );
+  const [yearFrom, setYearFrom] = useState(savedScope?.yearFrom || "");
+  const [yearTo, setYearTo] = useState(savedScope?.yearTo || "");
+  const [localOnly, setLocalOnly] = useState(savedScope?.localOnly || false);
+  const [onlyUploaded, setOnlyUploaded] = useState(
+    savedScope?.onlyUploaded || false
+  );
+  const [latest, setLatest] = useState(savedScope?.latest || false);
+  const [provider, setProvider] = useState<Provider>(
+    savedScope?.provider || ""
+  );
 
-  useEffect(() => { listAllPapers().then(setPapers).catch(() => {}); }, []);
+  useEffect(() => {
+    listAllPapers()
+      .then(setPapers)
+      .catch(() => {});
+  }, []);
 
   // Save session ID to sessionStorage
   useEffect(() => {
-    if (sessionId) {
-      sessionStorage.setItem(SESSION_KEY, sessionId);
+    try {
+      if (sessionId) {
+        sessionStorage.setItem(SESSION_KEY, sessionId);
+        sessionStorage.setItem(
+          SCOPE_KEY,
+          JSON.stringify({
+            sessionId,
+            selectedPapers,
+            yearFrom,
+            yearTo,
+            localOnly,
+            onlyUploaded,
+            latest,
+            provider,
+          })
+        );
+      }
+    } catch {
+      /* Storage can be unavailable; the current page still keeps scope. */
     }
-  }, [sessionId]);
+  }, [
+    sessionId,
+    selectedPapers,
+    yearFrom,
+    yearTo,
+    localOnly,
+    onlyUploaded,
+    latest,
+    provider,
+  ]);
 
   // Submit a query
   const handleSubmit = useCallback(
@@ -51,15 +134,23 @@ export default function QueryPage() {
         const response = await submitQuery(query, sessionId || undefined, {
           retrieval_mode: "hybrid",
           rewrite_query: true,
-          paper_ids: selectedPapers.length ? selectedPapers : undefined,
-          year_from: yearFrom ? Number(yearFrom) : undefined,
-          year_to: yearTo ? Number(yearTo) : undefined,
-          provider: provider || undefined,
+          paper_ids: selectedPapers.length ? selectedPapers : null,
+          year_from: yearFrom ? Number(yearFrom) : null,
+          year_to: yearTo ? Number(yearTo) : null,
+          provider: provider || null,
+          local_only: localOnly,
+          only_uploaded: onlyUploaded,
+          latest,
+          intent: null,
         });
 
         // Update session ID
         if (response.session_id) {
           setSessionId(response.session_id);
+        }
+        if (response.routing) {
+          setLocalOnly(response.routing.local_only);
+          setOnlyUploaded(response.routing.only_uploaded);
         }
 
         // Add assistant message
@@ -73,16 +164,23 @@ export default function QueryPage() {
           },
         ]);
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to get response"
-        );
+        setError(err instanceof Error ? err.message : "Failed to get response");
         // Remove the user message on error
         setMessages((prev) => prev.slice(0, -1));
       } finally {
         setLoading(false);
       }
     },
-    [sessionId, selectedPapers, yearFrom, yearTo, provider]
+    [
+      sessionId,
+      selectedPapers,
+      yearFrom,
+      yearTo,
+      provider,
+      localOnly,
+      onlyUploaded,
+      latest,
+    ]
   );
 
   // Handle follow-up suggestion click
@@ -98,6 +196,7 @@ export default function QueryPage() {
     setMessages([]);
     setSessionId(null);
     sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SCOPE_KEY);
     setError(null);
   }, []);
 
@@ -148,7 +247,122 @@ export default function QueryPage() {
 
         {/* Input */}
         <div className="mt-4 border-t pt-4">
-          <details className="mb-4 rounded-lg border bg-card p-3 text-sm"><summary className="cursor-pointer font-medium">Search scope</summary><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="grid gap-1">Source<select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)} className="rounded-md border bg-background p-2"><option value="">All sources</option><option value="semantic_scholar">Semantic Scholar</option><option value="openalex">OpenAlex</option><option value="pubmed">PubMed</option><option value="arxiv">arXiv</option></select></label><label className="grid gap-1">From year<input type="number" value={yearFrom} onChange={(event) => setYearFrom(event.target.value)} className="rounded-md border bg-background p-2" /></label><label className="grid gap-1">To year<input type="number" value={yearTo} onChange={(event) => setYearTo(event.target.value)} className="rounded-md border bg-background p-2" /></label></div>{papers.length > 0 && <div className="mt-4"><p className="mb-2 font-medium">Papers · leave unselected to search the whole library</p><input value={paperFilter} onChange={(event) => setPaperFilter(event.target.value)} placeholder="Find a paper" className="mb-2 w-full rounded-md border bg-background p-2" /><div className="max-h-32 space-y-1 overflow-y-auto">{papers.filter((paper) => paper.title.toLowerCase().includes(paperFilter.toLowerCase())).slice(0, 100).map((paper) => <label key={paper.id} className="flex items-center gap-2"><input type="checkbox" checked={selectedPapers.includes(paper.id)} onChange={() => setSelectedPapers((prev) => prev.includes(paper.id) ? prev.filter((id) => id !== paper.id) : [...prev, paper.id])} />{paper.title}</label>)}</div></div>}</details>
+          <fieldset
+            className="mb-3 rounded-lg border bg-card p-3 text-sm"
+            disabled={loading}
+          >
+            <legend className="px-1 font-medium">Evidence access</legend>
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={localOnly}
+                  onChange={(event) => setLocalOnly(event.target.checked)}
+                />
+                Local only
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={onlyUploaded}
+                  onChange={(event) => setOnlyUploaded(event.target.checked)}
+                />
+                Only uploaded papers
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={latest}
+                  onChange={(event) => setLatest(event.target.checked)}
+                />
+                Find latest papers
+              </label>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              {localOnly || onlyUploaded
+                ? "Web access is off. Latest results may be incomplete."
+                : "Searches your library first. Academic Web evidence may supplement gaps and is not automatically imported."}
+            </p>
+          </fieldset>
+          <details className="mb-4 rounded-lg border bg-card p-3 text-sm">
+            <summary className="cursor-pointer font-medium">
+              Search scope
+            </summary>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1">
+                Source
+                <select
+                  value={provider}
+                  onChange={(event) =>
+                    setProvider(event.target.value as typeof provider)
+                  }
+                  className="rounded-md border bg-background p-2"
+                >
+                  <option value="">All sources</option>
+                  <option value="semantic_scholar">Semantic Scholar</option>
+                  <option value="openalex">OpenAlex</option>
+                  <option value="pubmed">PubMed</option>
+                  <option value="arxiv">arXiv</option>
+                </select>
+              </label>
+              <label className="grid gap-1">
+                From year
+                <input
+                  type="number"
+                  value={yearFrom}
+                  onChange={(event) => setYearFrom(event.target.value)}
+                  className="rounded-md border bg-background p-2"
+                />
+              </label>
+              <label className="grid gap-1">
+                To year
+                <input
+                  type="number"
+                  value={yearTo}
+                  onChange={(event) => setYearTo(event.target.value)}
+                  className="rounded-md border bg-background p-2"
+                />
+              </label>
+            </div>
+            {papers.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 font-medium">
+                  Papers · leave unselected to search the whole library
+                </p>
+                <input
+                  value={paperFilter}
+                  onChange={(event) => setPaperFilter(event.target.value)}
+                  placeholder="Find a paper"
+                  className="mb-2 w-full rounded-md border bg-background p-2"
+                />
+                <div className="max-h-32 space-y-1 overflow-y-auto">
+                  {papers
+                    .filter((paper) =>
+                      paper.title
+                        .toLowerCase()
+                        .includes(paperFilter.toLowerCase())
+                    )
+                    .slice(0, 100)
+                    .map((paper) => (
+                      <label key={paper.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedPapers.includes(paper.id)}
+                          onChange={() =>
+                            setSelectedPapers((prev) =>
+                              prev.includes(paper.id)
+                                ? prev.filter((id) => id !== paper.id)
+                                : [...prev, paper.id]
+                            )
+                          }
+                        />
+                        {paper.title}
+                      </label>
+                    ))}
+                </div>
+              </div>
+            )}
+          </details>
           <SearchInput
             onSubmit={handleSubmit}
             loading={loading}

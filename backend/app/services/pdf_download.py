@@ -48,15 +48,30 @@ async def validate_public_url(
     return next((ip for ip in addresses if ip.version == 4), addresses[0])
 
 
-async def download_pdf(url: str, client: httpx.AsyncClient | None = None) -> bytes:
+async def download_pdf(
+    url: str,
+    client: httpx.AsyncClient | None = None,
+    *,
+    max_bytes: int | None = None,
+    max_redirects: int = 5,
+    same_host: bool = False,
+    on_attempt=None,
+) -> bytes:
     """Check each redirect and stream at most the configured upload limit."""
     owns_client = client is None
     client = client or httpx.AsyncClient(
         timeout=25, follow_redirects=False, trust_env=False
     )
-    max_bytes = settings.max_file_size_mb * 1024 * 1024
+    max_bytes = (
+        max_bytes if max_bytes is not None else settings.max_file_size_mb * 1024 * 1024
+    )
+    original_host = urlsplit(url).hostname
     try:
-        for _ in range(6):
+        for _ in range(max_redirects + 1):
+            if same_host and urlsplit(url).hostname != original_host:
+                raise UnsafePDFURL("Cross-domain PDF redirect")
+            if on_attempt:
+                on_attempt()
             resolved = await validate_public_url(url)
             parsed = urlsplit(url)
             host = parsed.hostname

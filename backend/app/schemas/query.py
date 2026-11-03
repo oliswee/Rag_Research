@@ -24,6 +24,8 @@ class QueryRequest(BaseModel):
     retrieval_mode: Literal["hybrid", "dense", "bm25"] = "hybrid"
     rewrite_query: bool = True
     local_only: bool = False
+    only_uploaded: bool = False
+    intent: Literal["factual", "compare", "discover", "latest"] | None = None
     latest: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
     year_to: int | None = Field(None, ge=1800, le=2100)
@@ -47,6 +49,8 @@ class FollowUpRequest(BaseModel):
     retrieval_mode: Literal["hybrid", "dense", "bm25"] | None = None
     rewrite_query: bool = True
     local_only: bool = False
+    only_uploaded: bool = False
+    intent: Literal["factual", "compare", "discover", "latest"] | None = None
     latest: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
     year_to: int | None = Field(None, ge=1800, le=2100)
@@ -76,6 +80,9 @@ class QueryResponse(BaseModel):
     retrieval_mode: str | None = None
     retrieval_query: str | None = None
     query_count: int = 1
+    routing: dict = Field(default_factory=dict)
+    web_records: list[dict] = Field(default_factory=list)
+    notices: list[str] = Field(default_factory=list)
     retrieval_status: str | None = None
     rewrite_status: Literal["disabled", "applied", "unavailable", "failed"] | None = (
         None

@@ -296,7 +296,10 @@ class TestFullPipeline:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["confidence"] == "low"
-        assert "couldn't find any patterns" in data["response"].lower()
+        assert "insufficient evidence" in data["response"].lower()
+        assert data["routing"]["action"] == "search_web"
+        assert data["routing"]["local_retry_count"] == 1
+        assert data["web_records"] == []
 
     def test_multiple_papers_query(
         self,

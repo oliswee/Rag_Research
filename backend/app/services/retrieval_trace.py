@@ -67,6 +67,10 @@ def _safe_scope(scope: dict) -> dict:
         else None,
         "local_only": scope.get("local_only") is True,
         "latest": scope.get("latest") is True,
+        "only_uploaded": scope.get("only_uploaded") is True,
+        "intent": scope.get("intent")
+        if scope.get("intent") in {"factual", "compare", "discover", "latest"}
+        else None,
     }
 
 

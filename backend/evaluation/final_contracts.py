@@ -113,6 +113,38 @@ def verify_runtime(manifest):
         raise ValueError("Runtime differs from the frozen pipeline/model/budgets")
 
 
+def verify_models(root, manifest):
+    from evaluation.final_model_freeze import capture_models
+
+    root = Path(root)
+    expected_path = root / "model_freeze.json"
+    binding = manifest
+    prospective = "model_freeze.json" in manifest["files"]
+    if not prospective:
+        legacy = root / "model_bound_freeze.json"
+        if not legacy.is_file():
+            raise ValueError("Models must be included in a checked freeze manifest")
+        binding = json.loads(legacy.read_text())
+        if (
+            binding["config"].get("previous_manifest_sha256")
+            != manifest["manifest_sha256"]
+        ):
+            raise ValueError("Model binding belongs to another source freeze")
+    verify_freeze(root, binding)
+    if "model_freeze.json" not in binding["files"]:
+        raise ValueError("Model identity file is not frozen")
+    expected = json.loads(expected_path.read_text())
+    observed = capture_models()
+    for field in ("embedding", "reranker", "generation_and_judge", "judge_limits"):
+        if observed.get(field) != expected.get(field):
+            raise ValueError("Actual model weights, tag or Judge limits changed")
+    return {
+        "actual_model_identity_verified_now": True,
+        "models_in_initial_prospective_freeze": prospective,
+        "model_binding_sha256": binding["manifest_sha256"],
+    }
+
+
 def load_jsonl(path):
     return [
         json.loads(line)

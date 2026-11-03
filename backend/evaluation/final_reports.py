@@ -14,6 +14,7 @@ from evaluation.final_contracts import (
     sha256,
     validate_annotation,
     verify_freeze,
+    verify_models,
     verify_runtime,
     write_jsonl,
 )
@@ -58,6 +59,8 @@ def run(root, destination):
         "web_routes.json",
         "ai_error_review.jsonl",
         "model_freeze.json",
+        "raw_long_context_pairs.jsonl",
+        "actual_web_flow_verified.json",
     ]
     if any(not (root / name).is_file() for name in required):
         raise ValueError("Finish measured runs before publishing a final report")
@@ -68,6 +71,7 @@ def run(root, destination):
     frozen = read("freeze_config.json")
     verify_freeze(root, frozen)
     verify_runtime(frozen)
+    model_verification = verify_models(root, frozen)
     retrieval = read("retrieval_replay/summary.json")
     rows = load_jsonl(root / "retrieval_replay/case_results.jsonl")
     generated = load_jsonl(root / "generation/results.jsonl")
@@ -104,7 +108,23 @@ def run(root, destination):
     ):
         for row in items:
             for citation in row["answer"].get("citations", []):
-                citation_rows.append({"scope": scope, "case_id": row["case_id"], "source_origin": citation["source_origin"], "evidence_type": citation["evidence_type"], "source_id": citation["source_id"], "doi_present": bool(citation.get("doi")), "doi_registration_verified": None, "pdf_page": citation.get("pdf_page"), "raw_quote_sha256": sha256(citation["raw_quote"].encode()), "canonical_binding_pass": row["deterministic"]["citation_integrity"], "human_claim_support": None})
+                citation_rows.append(
+                    {
+                        "scope": scope,
+                        "case_id": row["case_id"],
+                        "source_origin": citation["source_origin"],
+                        "evidence_type": citation["evidence_type"],
+                        "source_id": citation["source_id"],
+                        "doi_present": bool(citation.get("doi")),
+                        "doi_registration_verified": None,
+                        "pdf_page": citation.get("pdf_page"),
+                        "raw_quote_sha256": sha256(citation["raw_quote"].encode()),
+                        "canonical_binding_pass": row["deterministic"][
+                            "citation_integrity"
+                        ],
+                        "human_claim_support": None,
+                    }
+                )
             published.append(
                 {
                     "scope": scope,
@@ -130,8 +150,39 @@ def run(root, destination):
                 }
             )
     write_jsonl(destination / "deepeval_final_results.jsonl", published)
-    csv_file(destination / "citation_checks.csv", citation_rows)
-    csv_file(destination / "reference_abstention.csv", [{"case_id": row["case_id"], "answerable_dataset_reference": row["answerable_reference"], "actual_support_status": row["support_status"], "generated_supported_claims": row["deterministic"]["supported_claim_count"], "human_correct_refusal": None, "human_false_refusal": None} for row in generated])
+    csv_file(
+        destination / "citation_checks.csv",
+        citation_rows,
+        fields=[
+            "scope",
+            "case_id",
+            "source_origin",
+            "evidence_type",
+            "source_id",
+            "doi_present",
+            "doi_registration_verified",
+            "pdf_page",
+            "raw_quote_sha256",
+            "canonical_binding_pass",
+            "human_claim_support",
+        ],
+    )
+    csv_file(
+        destination / "reference_abstention.csv",
+        [
+            {
+                "case_id": row["case_id"],
+                "answerable_dataset_reference": row["answerable_reference"],
+                "actual_support_status": row["support_status"],
+                "generated_supported_claims": row["deterministic"][
+                    "supported_claim_count"
+                ],
+                "human_correct_refusal": None,
+                "human_false_refusal": None,
+            }
+            for row in generated
+        ],
+    )
     metric_groups = defaultdict(list)
     for row in published:
         for metric in row["metrics"]:
@@ -144,8 +195,9 @@ def run(root, destination):
             m["score"]
             for m in metrics
             if m["status"] == "evaluated"
-            and isinstance(m.get("score"), (int, float))
+            and type(m.get("score")) in {int, float}
             and math.isfinite(m["score"])
+            and 0 <= m["score"] <= 1
         ]
         metric_table.append(
             {
@@ -163,6 +215,23 @@ def run(root, destination):
     csv_file(
         destination / "long_context.csv",
         load_jsonl(root / "generation/long_context_eligibility.jsonl"),
+    )
+    long_pairs = load_jsonl(root / "raw_long_context_pairs.jsonl")
+    csv_file(
+        destination / "long_context_comparison.csv",
+        [
+            {
+                "case_id": row["case_id"],
+                "mode": row.get("mode"),
+                "status": row["status"],
+                "context_budget": row.get("context_budget"),
+                "support_status": row.get("result", {}).get("support_status"),
+                "pipeline_calls": row.get("result", {}).get("pipeline_llm_calls"),
+                "human_answer_completeness": None,
+                "judge_comparison": "not_evaluated",
+            }
+            for row in long_pairs
+        ],
     )
     order = load_jsonl(root / controlled_name / "evidence_order.jsonl")
     csv_file(
@@ -190,6 +259,28 @@ def run(root, destination):
                 "human_reviewed": False,
             }
             for row in web["routes"]
+        ],
+    )
+    actual_web = read("actual_web_flow_verified.json")
+    csv_file(
+        destination / "actual_web_flow.csv",
+        [
+            {
+                key: row.get(key)
+                for key in (
+                    "scope",
+                    "run_id",
+                    "local_only",
+                    "support_status",
+                    "citation_count",
+                    "evidence_count",
+                    "web_record_count",
+                    "external_attempts",
+                    "pipeline_calls",
+                    "human_correctness",
+                )
+            }
+            for row in actual_web
         ],
     )
     write_jsonl(
@@ -242,6 +333,7 @@ def run(root, destination):
         "pdf_current_review_freeze": read("pdf_audit/current_review_freeze.json"),
         "formal_human_gold": 0,
         "actual_cached_models": read("model_freeze.json"),
+        "model_identity_verification": model_verification,
         "run_date": "2026-11-04",
     }
     (destination / "freeze_config.json").write_text(
@@ -250,6 +342,9 @@ def run(root, destination):
     deterministic = [r["deterministic"] for r in generated + controlled]
     gate = {
         "formal_m8_accepted": False,
+        "models_in_initial_prospective_freeze": model_verification[
+            "models_in_initial_prospective_freeze"
+        ],
         "independent_human_gold": len(human),
         "independent_human_pdf_reviews": 0,
         "independent_human_error_reviews": 0,
@@ -313,13 +408,60 @@ def run(root, destination):
                     "counted_in_final_scenario_table": False,
                 }
             )
+    for label, observed in (
+        (
+            "initial_all_native_children",
+            load_jsonl(root / "generation/long_context_results.jsonl"),
+        ),
+        (
+            "matched_raw_full_paper_pairs",
+            [r["result"] for r in long_pairs if "result" in r],
+        ),
+    ):
+        cost_rounds.append(
+            {
+                "round": label,
+                "cases": len(observed),
+                "pipeline_successful_calls": sum(
+                    r["pipeline_llm_calls"] for r in observed
+                ),
+                "pipeline_model_attempts": sum(
+                    r["pipeline_budget"]["model_attempts"] for r in observed
+                ),
+                "judge_attempts": 0,
+                "counted_in_final_scenario_table": False,
+            }
+        )
+    cost_rounds.append(
+        {
+            "round": "guarded_actual_web_flow",
+            "cases": len(actual_web),
+            "pipeline_successful_calls": sum(r["pipeline_calls"] for r in actual_web),
+            "external_attempts": sum(r["external_attempts"] for r in actual_web),
+            "judge_attempts": 0,
+            "counted_in_final_scenario_table": False,
+        }
+    )
+    if (root / "demo_observations.json").exists():
+        demo_cost = read("demo_observations.json")
+        cost_rounds.append(
+            {
+                "round": "isolated_API_walkthrough",
+                "pipeline_successful_calls": demo_cost["observed_pipeline_calls"],
+                "pipeline_model_attempts": demo_cost["observed_model_attempts"],
+                "judge_attempts": 0,
+                "counted_in_final_scenario_table": False,
+            }
+        )
     cost = {
         "rounds": cost_rounds,
         "initial_rewrite_calls": 39,
         "replay_rewrite_calls": 0,
         "provider_api_currency": 0,
         "total_local_resource_cost": None,
-        "notes": "Includes initial fixture failure and corrected rerun; observed responses/tokens do not include unmeasured timed-out work.",
+        "initial_unguarded_web_probe": "Windows spawn re-executed helper; duplicated external/model work and mixed trace pairing, total usage unknown. Original log retained, excluded from paired quality results.",
+        "connectivity_probe_external_requests": 2,
+        "notes": "Includes initial fixture failure, corrected rerun, ordering, both long-context rounds, verified Web probe and API demo. Failed/duplicated work has unknown total usage; successful responses/tokens are lower bounds, not total resource cost.",
     }
     (destination / "diagnostic_cost_ledger.json").write_text(json.dumps(cost, indent=2))
     report = "# M8 final development evaluation and delivery\n\nDate:2026-11-04 (Australia/Sydney). M7 PR60 merged as`2b48206285f3237ce7590b3e5593c415bd199bda`; M1–M7 production source/config frozen for this run. M8 adds evaluation/delivery tooling. **Independent human M8 acceptance is not complete.** The engineering results below use public dataset references, explicitly controlled source fixtures and separately labelled AI review. No overall scientific-answer accuracy is certified.\n\n"
@@ -332,8 +474,10 @@ def run(root, destination):
     report += "\n## Generation, citations and Judge\n\nEight actual public-reference generations and six controlled local-PDF/Web-OA/abstract/metadata/fault/conflict scenarios are recorded separately. Synthetic Web originals are injected licensed fixtures, not actual Web retrieval gains. Declared metadata/fault cases have no factual evidence. Claim support is verified by the production pipeline but remains uncalibrated against humans. Exact citation ID/quote/DOI-field/URL/page binding is independently checked; DOI-field equality is not verification that a DOI is registered or that a publication is scientifically true.\n\n"
     report += f"Public-reference statuses:{dict(Counter(r['support_status'] for r in generated))}; controlled statuses:{dict(Counter(r['support_status'] for r in controlled))}. Public pipeline calls={sum(r['pipeline_llm_calls'] for r in generated)}; controlled pipeline calls={sum(r['pipeline_llm_calls'] for r in controlled)}. Judge attempts={sum(m['judge_attempts'] for r in generated + controlled for m in r['metrics'])}, separately from pipeline and rewrite calls. Detailed token counts, failed/unknown usage, metric targets and DeepEval4.2.8/local4B settings are in deepeval_final_results.jsonl. Three reference-free metrics plus two reference metrics apply only when valid reference answers exist. Bounded Judge timeout/malformed results remain not_evaluated; averages count scored observations only. Safe evidence-only output is not silently scored as a successfully answered question. Human claim support and unsupported-claim rate remain null. Local provider API currency is0; total CPU/GPU/energy cost is unmeasured.\n"
     report += "\nLong-context eligibility uses the same serialized8192-unit context ceiling and all native source children. Parser-filtered children are not raw unfiltered full-paper equivalence; eligibility/exclusions are retained in long_context.csv. Fixed-evidence ordering is a small synthetic controlled test with human completeness unmeasured; it does not justify changing evidence order.\n"
+    report += "\nA separate matched comparison actually generated from the full untruncated original provided paper plus a canonical citation-span catalogue versus RAG, under the same8192 context ceiling and production verifier. Two fitting papers produced four results (long_context_comparison.csv): the answerable case was supported with RAG and evidence_only with raw full paper; the no-answer-reference case was evidence_only in both modes. Human answer completeness and paired Judge scores are unmeasured; these two pairs do not establish a general long-context advantage. The earlier all-native-child run is retained separately in the cost ledger.\n"
     report += "\nCitation checks are stratified by local/Web and full-text/abstract evidence in citation_checks.csv, including actual citation counts, exact-quote hashes and canonical page bindings. Zero-citation abstentions are not successful scientific claims. DOI fields are absent in these particular generation samples; registered-DOI existence was not measured. Reference-no-answer and reference-answerable output statuses are in reference_abstention.csv; human correct/false-refusal decisions remain unknown. One reference-no-answer question produced a partial related statement, which does not establish a complete answer.\n"
     report += f"\n## Web, PDF and resources\n\nM5 routing fixtures rerun:{web['summary']}. The deliberately challenging fixture set retains wrong/missed routes; engineering/privacy gates do not certify semantic routing accuracy. Two actual connectivity probes are separate:{[(r['provider'], r['candidate_count'], [e.get('http_status') for e in r.get('events', [])]) for r in web['live']]}. Connectivity does not establish answer improvement or full-text availability.\n"
+    report += f"\nAn actual production Web adapter smoke test used an isolated empty local library and run-ID-correlated traces. Observed modes:{[(r['local_only'], r['support_status'], r['external_attempts'], r['evidence_count']) for r in actual_web]}. Local-only abstained with0 external attempts. Allowed Web made4 external attempts, recovered from Semantic Scholar429 to200, received OpenAlex200, and handled a temporary-PDF timeout;16 Web records yielded5 evidence entries but no supported answer or model generation. This is actual acquisition/fault handling, not an answer-quality gain. The first unguarded Windows helper was re-executed by PDF worker spawning; its mixed traces are archived and excluded from paired results, with total duplicated usage unknown.\n"
     pdf = read("pdf_audit/summary.json")
     report += f"\nHistorical PDF packet:{pdf}. All50 original PDF hashes match; old offsets/blocks can differ after earlier parser fixes and are not automatic new errors. A new current-parser30-suspicious/20-ordinary packet is separately frozen and published with human decisions blank. Codex visually inspected double columns, simple/complex tables, captions, formulas and a page boundary; scans retain typed unsupported behavior and abstracts have null geometry. AI/source checks are not human layout/cleaning certification.\n"
     stress = read("stress.json")
@@ -342,6 +486,7 @@ def run(root, destination):
     report += "\nDocker27.3.1 was restored by preserving/recreating only its inaccessible stale runtime directory, without deleting volumes. Backed-up scoped maintenance removed181 retired vectors; current93 valid vectors and1910 foreign-scope vectors were preserved, and a second repair was idempotent. SQLite retains both papers and274 historical chunks. User data was not used for benchmark questions or screenshots.\n"
     report += "\n## Acceptance and delivery limits\n\nEngineering deliverables include reproducible tools, frozen candidates, paired ablations, original-anchor checks, AI error review, bounded Judge results, stress/connectivity diagnostics, English architecture/install/maintenance documentation and a recording/walkthrough script. The existing real UI screenshot is retained. Automatic approval rejected new frontend preview startup with only blocked-by-policy detail, so no new UI screenshot or browser walkthrough is claimed. API/developer observations are not a3–5-person user study.\n\nFormal M8 gates remain unmet:0 independent human Gold,0/50 human PDF reviews,0/10 human error reviews and unmeasured human claim support for six scenario classes. AI review delegated by the user is labelled AI. Read annotation_guidelines.md and release_gate.json; no synthetic/development result is promoted to independent human acceptance. Final review, test and exact-head CI evidence are recorded in the PR and metrics history.\n"
     report += "\nThe initial local-PDF fixture was rejected before generation because in-memory bbox tuples differed from persisted JSON arrays. A RED test reproduced the fixture-boundary error; the corrected fixture uses the actual JSON wire representation and retains its original PDF/source database. All six scenarios were rerun; prior results/costs remain separate in diagnostic_cost_ledger.json. This correction did not change the frozen production parser/registry or the40-question corpus.\n"
+    report += f"\nActual model files/digests are now checked against a bound identity manifest:{model_verification}. This initial development run recorded weight identities after its first diagnostics, so prospective every-stage weight verification is not retrospectively claimed. Fresh preparation now includes model_freeze.json in the initial manifest, and retrieval/generation/Judge/report stages reject cache changes or same-name retags. Model names/config alone are insufficient.\n"
     demo_path = root / "demo_observations.json"
     if demo_path.exists():
         demo = json.loads(demo_path.read_text())

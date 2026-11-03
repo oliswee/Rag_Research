@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import math
 import os
 import time
 from importlib.metadata import version
@@ -31,6 +32,7 @@ from evaluation.deepeval_adapter import (  # noqa: E402
 from evaluation.final_contracts import (  # noqa: E402
     load_jsonl,
     verify_freeze,
+    verify_models,
     verify_runtime,
     write_jsonl,
 )
@@ -38,6 +40,16 @@ from evaluation.final_contracts import (  # noqa: E402
 
 def metric_names(expected):
     return METRICS + (REFERENCE_METRICS if expected else ())
+
+
+def valid_score(value):
+    if (
+        type(value) not in {int, float}
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+    ):
+        raise ValueError("Judge score must be finite and within [0,1]")
+    return value
 
 
 def citation_truth(answer, registry, *, local_only):
@@ -165,7 +177,7 @@ async def judge_answer(question, actual, context, expected, *, timeout=45):
                     )
             row.update(
                 status="evaluated",
-                score=metric.score,
+                score=valid_score(metric.score),
                 framework_cost=getattr(metric, "evaluation_cost", None),
             )
         except Exception as exc:
@@ -178,7 +190,7 @@ async def judge_answer(question, actual, context, expected, *, timeout=45):
 
 
 async def evaluate_case(
-    db, case, sources, *, web_snapshots=(), expected=None, run_judge=True
+    db, case, sources, *, web_snapshots=(), expected=None, run_judge=True, client=None
 ):
     registry = await build_registry(db, sources, web_snapshots=web_snapshots)
     trace = RetrievalTrace(case["question"], {}, corpus_version=case["provenance"])
@@ -186,7 +198,11 @@ async def evaluate_case(
     token = current_budget.set(budget)
     try:
         answer = await generate_grounded(
-            case["question"], registry, pack_context(registry.source_dicts()), trace
+            case["question"],
+            registry,
+            pack_context(registry.source_dicts()),
+            trace,
+            client=client,
         )
     finally:
         current_budget.reset(token)
@@ -223,6 +239,7 @@ async def run(root, *, judge_limit=4):
     manifest = json.loads((root / "freeze_config.json").read_text())
     verify_freeze(root, manifest)
     verify_runtime(manifest)
+    verify_models(root, manifest)
     output = root / "generation"
     output.mkdir(exist_ok=True)
     target = output / "results.jsonl"

@@ -1,0 +1,205 @@
+{
+  "files": {
+    "papers.jsonl": "8ba087375e6af2f9dd494ea3ae8500172758f02b28ec1a64d9714224188d7ef2",
+    "development_reference.jsonl": "d35094b32e4f2125d97d53e2476508e7de8959338725a8d879cb31297ade8596",
+    "gold_annotations.jsonl": "d35094b32e4f2125d97d53e2476508e7de8959338725a8d879cb31297ade8596",
+    "pdf_parser_human_audit.csv": "da71b9574251b02f08fe6ddc23e80f1dcd58586f97aa2e7f09b6439529a7faba"
+  },
+  "config": {
+    "base_commit": "2b48206285f3237ce7590b3e5593c415bd199bda",
+    "config_version": "sha256:0ad1be38f36c945ca63cd8063272b5f5aa75960c7e76535a3e6cf53701d95ad0",
+    "runtime": {
+      "schema": "m1_runtime_v2",
+      "pipeline_revision": "sha256:bf06a383141b44ed3e9bf753d850a72d19bd09c6430f0ade02eaa97163c22853",
+      "dependencies": {
+        "sqlalchemy": "2.0.45",
+        "qdrant-client": "1.16.2",
+        "fastembed": "0.9.0",
+        "openai": "2.14.0",
+        "anthropic": "0.75.0"
+      },
+      "embedding_provider": "fastembed",
+      "embedding_model": "BAAI/bge-small-en-v1.5",
+      "generation_provider": "ollama",
+      "generation_model": "qwen3:4b-instruct",
+      "model_weight_revision": null,
+      "ollama_endpoint_sha256": "4c832c9f45d78c4d24aa22bc043d40df8f45906e6e2ea33b04641ed10b88d05e",
+      "qdrant_endpoint_sha256": "03e837ac39ff5b112f09fd6bc398c1cb929521163468c91f06ecc5394e4c3046",
+      "llm_max_attempts": 3,
+      "llm_timeout_seconds": 120,
+      "retrieval": {
+        "query_limit": 3,
+        "rewrite_timeout_seconds": 20.0,
+        "branch_timeout_seconds": 15.0,
+        "concurrency": 3,
+        "per_query_k": 30,
+        "rrf_k": 60,
+        "final_k": 10,
+        "fusion": "single_layer_rrf"
+      },
+      "ranking_packing": {
+        "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+        "candidate_limit": 30,
+        "selected_limit": 10,
+        "timeout_seconds": 15.0,
+        "context_budget": 8192,
+        "parent_budget": 2048,
+        "budget_units": "utf8_bytes_conservative_bpe_bound",
+        "runtime_weights": "cached_only_cpu"
+      },
+      "web_routing": {
+        "policy": "deterministic_m5_v1",
+        "max_attempts": 8,
+        "timeout_seconds": 10.0,
+        "deadline_seconds": 45.0,
+        "metadata_bytes": 524288,
+        "candidates_per_provider": 8,
+        "pdf_bytes": 3145728,
+        "pdf_pages": 50,
+        "parser_timeout_seconds": 15.0
+      },
+      "claim_verification": {
+        "mode": "atomic_batch_m6_v1",
+        "max_calls": 10,
+        "output_tokens": 8192,
+        "input_bytes": 131072,
+        "deadline_seconds": 180.0,
+        "call_timeout_seconds": 30.0
+      },
+      "request_budget": {
+        "deadline_seconds": 240.0,
+        "model_attempts": 12,
+        "input_bytes": 262144,
+        "output_tokens": 16384,
+        "external_attempts": 12,
+        "currency_ceiling": null,
+        "input_price_per_million": null,
+        "output_price_per_million": null,
+        "embedding_price_per_million": null
+      }
+    },
+    "dataset_sha256": "9458bfe76074a8fa8d1685af02bcc73537aa6d338ad20591dfaff1946bc88bf4",
+    "sampling_seed": [
+      61,
+      62
+    ],
+    "prior_dev_papers_excluded": 40,
+    "project_human_gold_count": 0,
+    "reference_cases": 40,
+    "pdf_review_pending": 50
+  },
+  "manifest_sha256": "ff2ae1efd7bd149e12703e4845e8751f5f35ddf85ece8121ff1d8a7d3135e5ef",
+  "evaluation_source_sha256": {
+    "final_benchmark.py": "64c3f8db5dc44180779883ae8b1463206855ff0229c718e5e5293efd808290bc",
+    "final_contracts.py": "7fbba8d24f6f6c84e9c480af5ed30b602594d8b987236d1ed9e884e16793cf7e",
+    "final_fixture_generation.py": "4d8d5b15736b71405b594ac843e444f4c447679bfb94d39dc9f950acd9e8573c",
+    "final_generation.py": "9073fd1dfd30a8e20f5fe92b6f50c14fb63c57e995784e3beb6dcdc7058e7086",
+    "final_long_context.py": "aa9011926aab1ecbdbdbb645bbe9eb2f3ec8b532094ec789bdceb09d53f071e5",
+    "final_model_freeze.py": "b71c8c9b7406552a34009d78dd3f87ae0326c527e240b88a84d8d510c47227a6",
+    "final_pdf_audit.py": "7ca9c72ad1d675c9020f073f0f7cb252119ad7446595c10a2ca138bc1c66a10a",
+    "final_reports.py": "05bf849f0c84786138211c1b82d2852b252d298750e60c5a31c4082bf4a30059",
+    "final_statistics.py": "131fa9a7425b938fd600358e32774607927ab7badc3f794ef47bb5ebd118fad8",
+    "final_stress.py": "9916dd4600bf6eabb2cbf6625db152848f7c1c908b10db8c31e9564cd4a18a48",
+    "final_web_flow.py": "b9dbef5b6cec9b1906d136dc3021428689f1b1ecd19cf4f2a4918539c3475cf0"
+  },
+  "retrieval_replay_input": {
+    "files": {
+      "query_plans.jsonl": "81d4844e2f19245cc7a719f8ced7041cf27154799f1c31cf6e6ad356b1bcc733",
+      "source_catalog.jsonl": "9512831586aabe42ab54a7f0e723b94e7f223f03c814b9c93e0988b178287d3f"
+    },
+    "config": {
+      "source_freeze": "ff2ae1efd7bd149e12703e4845e8751f5f35ddf85ece8121ff1d8a7d3135e5ef"
+    },
+    "manifest_sha256": "bc9f3f76ed783818ad64f7b880ee390b4d9e39bbf1c25b696073fda167ccaaae"
+  },
+  "pdf_current_review_freeze": {
+    "files": {
+      "current_parser_samples.jsonl": "aa2c277361326b198d634f6d112eaff95269848e97d3187bc77f6019fbdb941a",
+      "current_parser_human_audit.csv": "b2b1c6bb7dc2991a68cd6e9f4784073caae85ed41489ff93bcf053e177e8d092"
+    },
+    "config": {
+      "sampling_seed": 61,
+      "human_reviewed": 0,
+      "suspicious": 30,
+      "ordinary": 20,
+      "replaces_stale_offsets_for_future_review_only": true
+    },
+    "manifest_sha256": "8783fa301613d61776ea8ad15dc4a71d0aa5c7644dcb42694090ca16a514d84c"
+  },
+  "formal_human_gold": 0,
+  "actual_cached_models": {
+    "embedding": {
+      "model": "BAAI/bge-small-en-v1.5",
+      "dimensions": 384,
+      "files": {
+        "config.json": {
+          "sha256": "13582bcf2effc85b7bf3d3f5532e686bc1c9ce86bb009d10f0ec33cbe92299dd",
+          "bytes": 706
+        },
+        "model_optimized.onnx": {
+          "sha256": "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431",
+          "bytes": 66465124
+        },
+        "special_tokens_map.json": {
+          "sha256": "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a",
+          "bytes": 695
+        },
+        "tokenizer.json": {
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+          "bytes": 711396
+        },
+        "tokenizer_config.json": {
+          "sha256": "0b29c7bfc889e53b36d9dd3e686dd4300f6525110eaa98c76a5dafceb2029f53",
+          "bytes": 1242
+        }
+      }
+    },
+    "reranker": {
+      "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+      "revision": "sha256:7d8561a043ed799d7c810903011deab75fd98ce67dec33f436a80cc4268d140f",
+      "files": {
+        "config.json": {
+          "sha256": "d827779a72d27ae68cf878a6fc2e954542663fe21ca515d9f4783fc96be2d37e",
+          "bytes": 824
+        },
+        "onnx/model.onnx": {
+          "sha256": "c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870",
+          "bytes": 90992115
+        },
+        "special_tokens_map.json": {
+          "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+          "bytes": 125
+        },
+        "tokenizer.json": {
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+          "bytes": 711396
+        },
+        "tokenizer_config.json": {
+          "sha256": "0b29c7bfc889e53b36d9dd3e686dd4300f6525110eaa98c76a5dafceb2029f53",
+          "bytes": 1242
+        }
+      }
+    },
+    "generation_and_judge": {
+      "provider": "ollama",
+      "model": "qwen3:4b-instruct",
+      "manifest_digest": "0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0",
+      "model_bytes": 2497293803,
+      "runtime_version": "0.40.13",
+      "temperature": 0
+    },
+    "judge_limits": {
+      "metric_timeout_seconds": 45,
+      "attempts_per_metric": 6,
+      "num_predict": 512,
+      "num_ctx": 4096
+    },
+    "preparation": "one_actual_offline_embedding_for_cache_identification_not_quality_scoring"
+  },
+  "model_identity_verification": {
+    "actual_model_identity_verified_now": true,
+    "models_in_initial_prospective_freeze": false,
+    "model_binding_sha256": "0074d55ffa8f2883679e4afdd425d6d08fcc82b173af6edc600429034e0226ac"
+  },
+  "run_date": "2026-11-04"
+}

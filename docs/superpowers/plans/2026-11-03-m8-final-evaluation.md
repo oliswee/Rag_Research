@@ -34,9 +34,9 @@
 
 **Interfaces:** validate_annotation(row,documents,require_human=False); freeze_manifest(paths,config); prepare(output,count=40) deterministic32answerable+8unanswerable on40newpapers with exact raw quotes/document offsets and PDF null. Preserve separate development_reference.jsonl and gold_annotations.jsonl pending status. Prepare50PDFaudit anchors/screenshots with cohort provenance; no AI-to-human promotion.
 
-- [ ] RED annotation provenance/offset/page/hash/scope failures, case-ID uniqueness and old-corpus separation; implement then GREEN.
-- [ ] Start actual Qdrant dependency without resetting Docker; dry check, backed-up scoped repair if required, report exact outcome.
-- [ ] Generate frozen candidate/review materials and model/config/source hashes; commit contract/material-preparation code.
+- [x] RED annotation provenance/offset/page/hash/scope failures, case-ID uniqueness and old-corpus separation; implement then GREEN.
+- [x] Start actual Qdrant dependency without resetting Docker; dry check, backed-up scoped repair if required, report exact outcome.
+- [x] Generate frozen candidate/review materials and model/config/source hashes; commit contract/material-preparation code.
 
 ## Task2 — Paired retrieval ablations, funnel and replay stress
 
@@ -44,9 +44,9 @@
 
 **Interfaces:** paired_summary(baseline,candidate,metric,seed=61,draws=2000) key by case_id, reject mismatches; funnel(case,trace,reference) seven-stage evidence-based attribution with unknown states. Actual BM25/Dense/single/multi Hybrid on same native plain-text corpus/real BGE/Qdrant; multi-query plans actual local model, save once. Rerank/flat/parent/no-parent on shared actual candidates, long-context only fitting documents, Web subset explicitly injected/licensed-public fixtures or actual allowed network, never silently substituted.
 
-- [ ] RED paired alignment/null handling/bootstrap/funnel/precision/coverage; implement then GREEN.
-- [ ] Run40case actual retrieval and ablations, preserve per-case traces/raw offsets; report wins/ties/losses/paired uncertainty with no unsupported gain claim.
-- [ ] Generate10+AI-attributed failure records distinctly from human review. Replay larger synthetic point sets with actual local hardware latency/memory; no quality/capacity extrapolation.
+- [x] RED paired alignment/null handling/bootstrap/funnel/precision/coverage; implement then GREEN.
+- [x] Run40case actual retrieval and ablations, preserve per-case traces/raw offsets; report wins/ties/losses/paired uncertainty with no unsupported gain claim.
+- [x] Generate10+AI-attributed failure records distinctly from human review. Replay larger synthetic point sets with actual local hardware latency/memory; no quality/capacity extrapolation.
 
 ## Task3 — Bounded generation, DeepEval and citation truthfulness
 
@@ -54,21 +54,27 @@
 
 **Interfaces:** reuse grounded_generation/evidence_registry and deepeval_adapter; local bounded Judge includes3reference-free and2reference metrics when valid public reference exists, with metric target/provenance/config/tokens/calls distinct from pipeline usage. Per-metric timeout and malformed/unavailable errors explicit. Six local/OA/abstract/metadata/fault/conflict cases, deterministic ID/DOI/URL/quote/page checks; human claim-support stays null.
 
-- [ ] RED no-answer reference omission, unsupported/malformed citations, Judge failure/missingusage, synthetic labels versus human gates; GREEN.
-- [ ] Run actual bounded generation/Judge on frozen public development cases, suitable full-paper vs RAG and fixed-evidence-order comparison; label injected Web boundaries and actual network separately.
-- [ ] Preserve all failures/unknowns; gate0fakepages/0Local-onlyWeb/0credentialleaks on actual fixtures and existing security suites. No changed production defaults without evidence.
+- [x] RED no-answer reference omission, unsupported/malformed citations, Judge failure/missingusage, synthetic labels versus human gates; GREEN.
+- [x] Run actual bounded generation/Judge on frozen public development cases, suitable full-paper vs RAG and fixed-evidence-order comparison; label injected Web boundaries and actual network separately.
+- [x] Preserve all failures/unknowns; gate0fakepages/0Local-onlyWeb/0credentialleaks on actual fixtures and existing security suites. No changed production defaults without evidence.
 
 ## Task4 — Final reports, architecture, walkthrough and real screenshots
 
 **Files:** docs/evaluation/evaluation_final.md, annotation_guidelines.md, error_analysis.md, ablation.csv, pdf_parser_human_audit.csv, gold_annotations.jsonl, deepeval_final_results.jsonl, freeze_config.json; docs/architecture_decisions.md, docs/demo_script.md; README and metrics_history section13.
 
-- [ ] Publish sanitized schema/templates and machine-generated results, source/config/dataset hashes, full provenance and pending human/user-study gates.
-- [ ] Describe SQLite/FTS/Qdrant vs alternatives, actual local resources and migration, deterministic Local-first/CRAG-inspired fallback and deferred agent/GraphRAG/SelfRAG/HyDE work.
+- [x] Publish sanitized schema/templates and machine-generated results, source/config/dataset hashes, full provenance and pending human/user-study gates.
+- [x] Describe SQLite/FTS/Qdrant vs alternatives, actual local resources and migration, deterministic Local-first/CRAG-inspired fallback and deferred agent/GraphRAG/SelfRAG/HyDE work.
 - [ ] Provide discovery→import→retrieval→source→compare walkthrough, real tested screenshots without private text/keys. No fabricated3–5user observations.
-- [ ] Keep engineering completion separate from formal M8 human acceptance; README claims link to measured artifacts.
+- [x] Keep engineering completion separate from formal M8 human acceptance; README claims link to measured artifacts.
 
 ## Task5 — Final review, verification and delivery
 
 - [ ] One fresh whole-branch review, reproduce/fix Important/Critical findings once with RED/GREEN. Full appropriate backend/frontend/lint/build/migration/privacy and exact-head CI.
 - [ ] Push own feature branch/draft PR, issue61 and ignored ledgers updated; M8 PR merge not authorized.
 - [ ] Final notification describes completed deliverables and any unmet independent human acceptance/service prerequisites candidly, with no invented approval or user-study results.
+
+## Execution evidence (November4)
+
+Tasks1–3 and autonomous report/architecture/README work are delivered. Full backend1180passed before late guard additions; evaluation65 and security/maintenance32 passed after fixes, Ruff238files clean. Whole-branch review found3P2, all reproduced/fixed; bounded confirmation14passed and no remaining Important/Critical. Final actual user-library dry check consistent=true, FTS/vector mismatch counts0. See metrics_history section13 and docs/evaluation.
+
+Task4 screenshot item remains partial: real API/source/feedback/compare walkthrough completed in an isolated synthetic database, but automatic approval blocked frontend preview startup with only blocked-by-policy detail. Existing real screenshot retained; no new screenshot or browser/user-study claim. User-delegated AI review is complete as labelled; independent human Gold/PDF/claim/error gates remain pending, formal_m8_accepted=false. Initial model weight binding was posthoc and disclosed, not retrospectively prospective. Draft PR/exact-head CI and final notification remain until verified.

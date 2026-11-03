@@ -12,6 +12,15 @@ from evaluation.final_contracts import (
 TEXT = "The reported accuracy is ninety percent."
 
 
+def test_fresh_packets_do_not_collide_in_shared_qdrant_collection():
+    from evaluation.prepare_final import runtime_paper_id
+
+    first = "00000000-0000-0000-0000-000000000001"
+    second = "00000000-0000-0000-0000-000000000002"
+    assert runtime_paper_id(first, "paper") == runtime_paper_id(first, "paper")
+    assert runtime_paper_id(first, "paper") != runtime_paper_id(second, "paper")
+
+
 def test_frozen_runtime_cannot_silently_change_model_or_budget(monkeypatch):
     from app.config import settings
     from app.services.trace_versions import configuration_snapshot

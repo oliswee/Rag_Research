@@ -35,6 +35,7 @@ from evaluation.final_contracts import (
     freeze_manifest,
     load_jsonl,
     verify_freeze,
+    verify_models,
     verify_runtime,
     write_jsonl,
 )
@@ -75,6 +76,7 @@ async def run(root, *, replay=False):
     manifest = json.loads((root / "freeze_config.json").read_text())
     verify_freeze(root, manifest)
     verify_runtime(manifest)
+    verify_models(root, manifest)
     if settings.embedding_provider != "fastembed" or settings.llm_provider != "ollama":
         raise ValueError("Use frozen local BGE/Ollama configuration")
     output = root / ("retrieval_replay" if replay else "retrieval")

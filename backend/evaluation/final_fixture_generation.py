@@ -14,7 +14,12 @@ from app.services.evidence_registry import seal_web_sources
 from app.services.parent_child import stage_generation
 from app.services.pdf_parser import PDFParserService
 from app.services.source_anchors import resolve_child
-from evaluation.final_contracts import verify_freeze, verify_runtime, write_jsonl
+from evaluation.final_contracts import (
+    verify_freeze,
+    verify_models,
+    verify_runtime,
+    write_jsonl,
+)
 from evaluation.final_generation import evaluate_case
 from evaluation.generation_benchmark import web_source
 
@@ -55,6 +60,7 @@ async def run(root, *, output_name="controlled_generation"):
     manifest = json.loads((root / "freeze_config.json").read_text())
     verify_freeze(root, manifest)
     verify_runtime(manifest)
+    verify_models(root, manifest)
     if output_name not in {"controlled_generation", "controlled_generation_fixed"}:
         raise ValueError("Unknown controlled output name")
     output = root / output_name

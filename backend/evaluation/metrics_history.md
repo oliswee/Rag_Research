@@ -286,3 +286,30 @@ The30-request runtime predates this maintenance-only fix; its recorded config/pi
 **本地完整回归的休眠例外：**1161passed/14warnings，1项请求deadline失败，总3622.93s。Windows电源事件确认08:27:46Z至09:20:56Z休眠约53分钟；该用例wall3191.33s。未延长240秒预算，失败例+预算/故障15项重跑17.95s全部通过，原用例6.97s。保留失败日志，不将这批本地执行写成一次全绿；同一实现远程完整CI全绿。
 
 **实际本地依赖：**FTS三类异常计数均0；配置Qdrant服务不可用，向量数量未知，整体consistent=false，未重建用户向量。30请求实测使用真实隔离Qdrant本地引擎，不能据此说服务端已恢复。PR60保持draft/未合并；按用户最新要求完成M7即停，M8未启动。
+
+## 13. M8 自动工程评测与交付（2026-11-03—04）
+
+用户随后明确授权合并M7并继续M8，覆盖上一节历史停止状态。M7 PR60已合并，merge SHA `2b48206285f3237ce7590b3e5593c415bd199bda`，合并前最终head `bfca6ab29645ea8f72d3091ab1c2c352361f6d94` 的CI41634257131后端/前端通过，四个旧PR未动。M8 issue61。完整报告见[最终开发评测](../../docs/evaluation/evaluation_final.md)，**独立人工验收尚未完成**；本节不能作为整体科学回答准确率证明。
+
+| 项目 | 实测 | 边界 |
+| --- | --- | --- |
+| 新语料 |40篇/40题，32有答案、8无答案参考；849原生child | QASPER train，排除早期dev40；公开标签不是项目人工Gold，提供文本页码为null |
+| 七组检索消融 | packed Recall@10：BM25 .484375；Dense .562500；single Hybrid .546875；multi Hybrid .546875；multi+parent .546875；multi+rerank .718750；最终 .718750 |32条有答案参考；同语料/模型/预算；Paper Hit=1仅是指定论文范围条件指标 |
+| 配对最终−single Hybrid |均差 .171875；赢10/平19/输3；bootstrap95% [.015625,.328125] |2000次、seed61，开发参考描述，不宣称正式显著收益；本组parent无额外覆盖增益 |
+| 实际改写与重放 |39模型调用，13计划应用、26拒绝回Q0、1约束禁用；重放0新改写 |280组packed sources与初轮相同，重放仍执行真实检索/重排；保留R0/rank轨迹 |
+| 真实公开题生成 |8题、12业务调用、60 Judge尝试；13/20指标有分，7未评测 |5 evidence_only、2 partial、1 supported；安全输出不等于问题完整回答 |
+| 修正后六场景 |8业务调用、59 Judge尝试、22指标有分；6/6规范引用绑定通过、0假页码 |本地PDF/OA/摘要/元数据/故障/冲突；Web为公开受控夹具，0真实获取；初轮夹具错误和成本另存 |
+| Full paper vs RAG |2题×2路径，5业务调用；有答案题RAG supported/全文 evidence_only，无答案参考题两者evidence_only |实际未截断原始全文+原文引用范围，同8192预算；人工完整性与配对Judge未测，不外推优势 |
+| 固定证据排序 |source/reversed两次均supported，4业务调用 |同一受控证据集，人工完整性未知，不变更默认排序 |
+| 真实Web烟测 |Local-only abstain、0外部尝试；允许Web evidence_only、4外部尝试、16记录/5证据、0生成调用 |S2 429→200，OpenAlex200，临时PDF超时；不是回答质量增益。早期Windows未加入口保护的辅助脚本重入，混合轨迹不作配对结论、重复总成本未知 |
+| 路由/故障 |16夹具，1误触发/1漏触发，最多1纠错；7故障通过 |实际连通探针另有OpenAlex200/8候选、S2 429/0，不合并为质量结果 |
+| PDF原文/AI检查 |50/50旧PDF哈希相同；旧offset27/50、同块文本38/50；新30可疑+20普通包 |历史解析变化不当新错误率；Codex看5张实际页面及跨页下一页，10失败归因为AI审核，人工PDF/归因均0 |
+| 实际Qdrant压力 |1k/10k×384随机向量、各32查询；p50/p95 28.48/42.98与24.53/40.02ms；容器196.5/244.3MiB |独立集合，indexed_vectors=0；未测ANN、生成质量、并发容量或Python RSS |
+| Docker/用户索引 |保留旧run目录并重建临时目录后恢复Docker27.3.1/Qdrant1.16.2；先备份SQLite，清理181 retired向量 |保留93当前有效向量、1910外scope；修复二次幂等；2论文/274历史chunk保留，未删除卷 |
+| API走查 |隔离2份合成摘要，health/query/compare均200；1引用回跳、反馈needs_review、4比较行 |6业务调用、0真人参与者；没有新浏览器走查/截图 |
+
+DeepEval4.2.8，本地Ollama0.40.13/qwen3:4b-instruct，temperature0、threshold .5、默认模板，每指标45秒/最多6次/num_predict512/num_ctx4096。业务与Judge用量分开；失败/重复/未测用量未知，云模型账单0不等于本机资源成本0。`diagnostic_cost_ledger.json`含失败夹具、修正轮、排序、两类全文对照、Web和API走查。实际模型缓存哈希/Ollama digest已绑定并核查；初轮诊断后才记录权重，**不追认此前每阶段事前冻结**。后续新prepare将权重纳入初始freeze，阶段拒绝改权重或同名retag。
+
+工程验证：初次完整后端1180passed/13warnings/483.68s；随后新增最终保护与全文测试，评测子集65passed/2.03s，注入/反馈/预算/索引/迁移32passed/16.16s，Ruff check/format238文件通过。整分支复核3个P2（覆盖审核包、模型权重漂移、无效Judge分数）均RED/GREEN修复，同一复核者确认无剩余Important/Critical，独立保护/全文子集14passed。最终提交完整远端CI结果记录在M8 PR；未把较早全量1180解释为包含后增测试。
+
+原始记录在忽略目录`data/evaluation/m8_final_20261103/`，初始语料manifest `ff2ae1efd7bd149e12703e4845e8751f5f35ddf85ece8121ff1d8a7d3135e5ef`；模型补绑定manifest `0074d55ffa8f2883679e4afdd425d6d08fcc82b173af6edc600429034e0226ac`。公开报告仅含脱敏指标/哈希/空人工表。正式M8仍缺30–50人工Gold、50PDF审核、10人工归因及六类人工声明核查；用户授权AI开发审核已执行但不冒充真人。前端预览启动被自动审批以blocked by policy拒绝，只保留已有真实截图，没有伪造新截图或用户研究。

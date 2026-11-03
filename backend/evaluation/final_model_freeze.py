@@ -10,7 +10,12 @@ from app.config import settings
 from app.services.child_reranker import LocalChildScorer
 from app.services.embedding_service import EmbeddingService
 from app.services.local_execution import local_only_request, loopback_url
-from evaluation.final_contracts import sha256
+from evaluation.final_contracts import (
+    freeze_manifest,
+    sha256,
+    verify_freeze,
+    verify_models,
+)
 
 
 def files(directory):
@@ -25,7 +30,7 @@ def files(directory):
     }
 
 
-def run(root):
+def capture_models():
     if not loopback_url(settings.ollama_base_url):
         raise ValueError("Only local frozen models are allowed")
     token = local_only_request.set(True)
@@ -70,15 +75,45 @@ def run(root):
         },
         "preparation": "one_offline_embedding_for_cache_identification_only",
     }
+    return result
+
+
+def bind_existing(root):
+    manifest = json.loads((root / "freeze_config.json").read_text())
+    verify_freeze(root, manifest)
+    target = root / "model_bound_freeze.json"
+    if not target.exists():
+        binding = freeze_manifest(
+            root,
+            [root / name for name in manifest["files"]]
+            + [root / "model_freeze.json", root / "freeze_config.json"],
+            {
+                "previous_manifest_sha256": manifest["manifest_sha256"],
+                "capture_timing": "after_initial_development_run_not_prospective",
+            },
+        )
+        target.write_text(json.dumps(binding, indent=2))
+    status = verify_models(root, manifest)
+    print(json.dumps(status))
+
+
+def run(root):
+    if (root / "model_freeze.json").exists():
+        manifest = json.loads((root / "freeze_config.json").read_text())
+        print(json.dumps(verify_models(root, manifest)))
+        return
+    result = capture_models()
     (root / "model_freeze.json").write_text(
         json.dumps(result, indent=2), encoding="utf-8"
     )
     print(
         json.dumps(
             {
-                "embedding_dimensions": dimension,
-                "generation_manifest_digest": model["digest"],
-                "ollama_version": version["version"],
+                "embedding_dimensions": result["embedding"]["dimensions"],
+                "generation_manifest_digest": result["generation_and_judge"][
+                    "manifest_digest"
+                ],
+                "ollama_version": result["generation_and_judge"]["runtime_version"],
             }
         )
     )
@@ -87,4 +122,6 @@ def run(root):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
-    run(parser.parse_args().root)
+    parser.add_argument("--bind-existing-development", action="store_true")
+    args = parser.parse_args()
+    bind_existing(args.root) if args.bind_existing_development else run(args.root)

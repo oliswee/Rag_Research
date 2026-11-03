@@ -14,6 +14,7 @@ from evaluation.final_contracts import (
     validate_annotation,
     write_jsonl,
 )
+from evaluation.final_model_freeze import capture_models
 from evaluation.prepare_qasper import agreed_no_answer, single_evidence
 
 TRAIN_HASH = "9458bfe76074a8fa8d1685af02bcc73537aa6d338ad20591dfaff1946bc88bf4"
@@ -26,6 +27,10 @@ def paper_text(paper):
     for section in paper["full_text"]:
         blocks.extend([section["section_name"], *section["paragraphs"]])
     return "\n\n".join(str(block) for block in blocks if block)
+
+
+def runtime_paper_id(namespace, identifier):
+    return str(uuid.uuid5(uuid.UUID(namespace), "qasper-paper:" + identifier))
 
 
 def prepare(output):
@@ -54,6 +59,7 @@ def prepare(output):
     random.Random(61).shuffle(positive)
     random.Random(62).shuffle(negative)
     selected, used = [], set()
+    namespace = str(uuid.uuid4())
     for pool, count in ((positive, 32), (negative, 8)):
         picked = 0
         for item in pool:
@@ -70,7 +76,7 @@ def prepare(output):
     papers, references = [], []
     for identifier, paper, qa, quote in selected:
         text = paper_text(paper)
-        paper_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "m8-qasper:" + identifier))
+        paper_id = runtime_paper_id(namespace, identifier)
         papers.append(
             {
                 "paper_id": paper_id,
@@ -155,6 +161,9 @@ def prepare(output):
         writer.writeheader()
         writer.writerows(pdf_rows)
     config_version, config = configuration_snapshot()
+    (output / "model_freeze.json").write_text(
+        json.dumps(capture_models(), indent=2), encoding="utf-8"
+    )
     manifest = freeze_manifest(
         output,
         [
@@ -164,6 +173,7 @@ def prepare(output):
                 "development_reference.jsonl",
                 "gold_annotations.jsonl",
                 "pdf_parser_human_audit.csv",
+                "model_freeze.json",
             )
         ],
         {
@@ -172,6 +182,7 @@ def prepare(output):
             "runtime": config,
             "dataset_sha256": TRAIN_HASH,
             "sampling_seed": [61, 62],
+            "runtime_namespace": namespace,
             "prior_dev_papers_excluded": len(excluded),
             "project_human_gold_count": 0,
             "reference_cases": 40,

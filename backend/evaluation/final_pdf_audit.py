@@ -15,10 +15,12 @@ from evaluation.final_contracts import freeze_manifest, sha256, write_jsonl
 
 
 def run(root):
+    output = root / "pdf_audit"
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("Preserve existing PDF audit packet; use a fresh output root")
     samples = Path("data/parsing/m2_human_review_20261024/cleaning_review_50.csv")
     with samples.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
-    output = root / "pdf_audit"
     output.mkdir(exist_ok=True)
     parsed, results = {}, []
     for number, row in enumerate(rows, 1):

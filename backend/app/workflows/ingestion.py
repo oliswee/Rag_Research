@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     Paper,
-    PaperChunk,
     PaperStatus,
+    PaperType,
     Pattern,
     PatternEvidence,
     PatternStatus,
@@ -22,7 +22,9 @@ from app.services import (
     PDFParseError,
     PDFParserService,
 )
-from app.services.source_index import SourceVectorIndex, build_chunks
+from app.services.parent_child import stage_generation
+from app.services.pdf_parser import parser_warnings
+from app.services.versioned_vectors import publish_generation
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +134,7 @@ class IngestionWorkflow:
                 logger.info(f"Parsed PDF: {parse_result.page_count} pages")
                 text_content = parse_result.text
                 pdf_metadata = parse_result.metadata
-                source_pages = [(page.text, page.number) for page in parse_result.pages]
+                warnings.extend(parser_warnings(parse_result))
             except PDFParseError as e:
                 logger.error(f"PDF parse failed: {e}")
                 return IngestionResult(
@@ -145,7 +147,7 @@ class IngestionWorkflow:
             # Use provided text directly
             text_content = input.text
             pdf_metadata = None
-            source_pages = [(text_content, None)]
+            parse_result = PDFParserService().parse_text(text_content)
             logger.info(f"Using provided text: {len(text_content)} chars")
 
         # Step 2: Extract metadata
@@ -169,12 +171,13 @@ class IngestionWorkflow:
             )
             self.db.add(paper)
             await self.db.flush()  # Get paper.id before creating patterns
-            chunks = []
-            for data in build_chunks(source_pages, "full_text", paper.source):
-                chunk = PaperChunk(paper_id=paper.id, **data)
-                self.db.add(chunk)
-                chunks.append(chunk)
-            await self.db.flush()
+            build = await stage_generation(
+                self.db,
+                paper,
+                parse_result,
+                source_bytes=input.pdf_bytes,
+            )
+            chunks = build.children
             paper.content_scope = "full_text"
             logger.info(f"Created paper: {paper.id}")
         except Exception as e:
@@ -185,6 +188,18 @@ class IngestionWorkflow:
                 pattern_count=0,
                 success=False,
                 error=f"Database error: {e}",
+            )
+
+        # Source survives later extraction/index failures.
+        try:
+            await self.db.commit()
+        except Exception as exc:
+            await self.db.rollback()
+            return IngestionResult(
+                paper_id=paper_id,
+                pattern_count=0,
+                success=False,
+                error=f"Database commit failed: {type(exc).__name__}",
             )
 
         # Step 4: Extract patterns
@@ -250,27 +265,10 @@ class IngestionWorkflow:
 
         if chunks and embeddings_available():
             try:
-                from app.services.embedding_service import EmbeddingService
-
-                embedding = EmbeddingService()
-                index = SourceVectorIndex()
-                vectors = await embedding.generate_text_batch(
-                    [chunk.text for chunk in chunks]
-                )
-                index.upsert_many(
-                    [
-                        (
-                            chunk.id,
-                            paper.id,
-                            vector,
-                            paper.published_date.year if paper.published_date else None,
-                            None,
-                        )
-                        for chunk, vector in zip(chunks, vectors, strict=True)
-                    ]
-                )
+                await publish_generation(self.db, build)
             except Exception as e:
                 warnings.append(f"Vector indexing pending: {type(e).__name__}")
+            await self.db.commit()
         elif chunks:
             warnings.append("Vector indexing pending: OPENAI_API_KEY is not configured")
 
@@ -320,7 +318,7 @@ class IngestionWorkflow:
             authors=authors,
             source=source,
             published_date=published_date,
-            type=paper_type,
+            type=paper_type or PaperType.research_paper,
             content_text=text_content,
             status=PaperStatus.ready_for_review,
         )

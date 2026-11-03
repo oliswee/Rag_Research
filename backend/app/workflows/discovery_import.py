@@ -12,16 +12,16 @@ from app.models import (
     ImportItem,
     ImportJob,
     Paper,
-    PaperChunk,
     PaperIdentifier,
     PaperStatus,
     PaperType,
 )
 from app.services.discovery import DiscoveryService
 from app.services.fulltext_locations import FullTextResolver
+from app.services.parent_child import stage_generation
 from app.services.pdf_download import download_pdf
-from app.services.pdf_parser import PDFParserService
-from app.services.source_index import SourceVectorIndex, build_chunks
+from app.services.pdf_parser import PDFParserService, parser_warnings
+from app.services.versioned_vectors import publish_generation
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,7 @@ async def import_one(
     """Resolve source again on the server, then save original text before indexing."""
     item.status = "running"
     await db.commit()
+    item_id = item.id
     try:
         candidate = await discovery.get_candidate(item.provider, item.provider_id)
         duplicate = await existing_paper(db, candidate)
@@ -65,6 +66,8 @@ async def import_one(
         warnings = []
         pages: list[tuple[str, int | None]] = []
         scope = "metadata"
+        parsed = None
+        original_pdf = None
         content_url = candidate.get("source_url")
         if candidate.get("pdf_url") and candidate.get("open_access"):
             try:
@@ -73,6 +76,8 @@ async def import_one(
                     max_pages=min(settings.max_pdf_pages, 200)
                 ).parse(payload)
                 pages = [(page.text, page.number) for page in parsed.pages]
+                warnings.extend(parser_warnings(parsed))
+                original_pdf = payload
                 scope = "full_text"
                 content_url = candidate["pdf_url"]
             except Exception as exc:
@@ -94,8 +99,10 @@ async def import_one(
                             max_pages=min(settings.max_pdf_pages, 200)
                         ).parse(payload)
                         pages = [(page.text, page.number) for page in parsed.pages]
+                        warnings.extend(parser_warnings(parsed))
                         if not any(text.strip() for text, _ in pages):
                             raise ValueError("Open copy contains no extractable text")
+                        original_pdf = payload
                         scope = "full_text"
                         content_url = location.source_url
                         warnings.append(f"Full text retrieved via {location.source}")
@@ -112,6 +119,8 @@ async def import_one(
         if not pages and candidate.get("abstract"):
             pages = [(candidate["abstract"], None)]
             scope = "abstract"
+            parsed = PDFParserService().parse_abstract(candidate["abstract"])
+            original_pdf = None
         if not pages:
             warnings.append("No open full text or abstract available; metadata only")
         warning = "; ".join(warnings) or None
@@ -134,15 +143,18 @@ async def import_one(
         await db.flush()
         for kind, value in identifiers(candidate):
             db.add(PaperIdentifier(paper_id=paper.id, kind=kind, value=value))
-        chunks = []
-        for data in build_chunks(
-            pages,
-            scope,
-            content_url if scope == "full_text" else candidate.get("source_url"),
-        ):
-            chunk = PaperChunk(paper_id=paper.id, **data)
-            db.add(chunk)
-            chunks.append(chunk)
+        build = None
+        if pages:
+            build = await stage_generation(
+                db,
+                paper,
+                parsed,
+                source_url=content_url
+                if scope == "full_text"
+                else candidate.get("source_url"),
+                source_bytes=original_pdf,
+            )
+        chunks = build.children if build else []
         item.paper_id, item.content_scope, item.warning, item.status = (
             paper.id,
             scope,
@@ -155,30 +167,12 @@ async def import_one(
 
         if chunks and embeddings_available():
             try:
-                from app.services.embedding_service import EmbeddingService
-
-                embeddings = EmbeddingService()
-                index = SourceVectorIndex()
-                vectors = await embeddings.generate_text_batch(
-                    [chunk.text for chunk in chunks]
-                )
-                index.upsert_many(
-                    [
-                        (
-                            chunk.id,
-                            paper.id,
-                            vector,
-                            candidate.get("year"),
-                            item.provider,
-                        )
-                        for chunk, vector in zip(chunks, vectors, strict=True)
-                    ]
-                )
+                await publish_generation(db, build)
             except Exception as exc:
                 item.warning = (
                     (item.warning + "; ") if item.warning else ""
                 ) + f"Vector indexing pending: {type(exc).__name__}"
-                await db.commit()
+            await db.commit()
         elif chunks:
             item.warning = (
                 (item.warning + "; ") if item.warning else ""
@@ -186,7 +180,7 @@ async def import_one(
             await db.commit()
     except Exception as exc:
         await db.rollback()
-        item = await db.get(ImportItem, item.id)
+        item = await db.get(ImportItem, item_id)
         item.status = "failed"
         item.error = f"Import failed: {type(exc).__name__}"
         await db.commit()

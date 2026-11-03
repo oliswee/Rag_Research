@@ -10,6 +10,11 @@ from app.models.source import (
     PaperIdentifier,
     PatternEvidence,
 )
+from app.models.source_document import (
+    SourceDocument,
+    SourceIndexGeneration,
+    SourceParent,
+)
 
 __all__ = [
     "Base",
@@ -23,4 +28,7 @@ __all__ = [
     "PatternEvidence",
     "ImportJob",
     "ImportItem",
+    "SourceDocument",
+    "SourceIndexGeneration",
+    "SourceParent",
 ]

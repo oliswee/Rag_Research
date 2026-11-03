@@ -286,7 +286,12 @@ def mock_session_manager() -> MagicMock:
 @pytest.fixture
 def mock_pdf_parser() -> MagicMock:
     """Mock PDF parser returning deterministic results."""
+    from app.services.pdf_parser import PDFParserService
+
     parser = MagicMock()
+    actual = PDFParserService()
+    parser.parse_text = actual.parse_text
+    parser.parse_abstract = actual.parse_abstract
 
     def parse(pdf_bytes):
         result = MagicMock()

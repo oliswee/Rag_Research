@@ -10,7 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import Paper, PaperChunk, Pattern
+from app.models import (
+    Paper,
+    PaperChunk,
+    Pattern,
+    SourceDocument,
+    SourceIndexGeneration,
+    SourceParent,
+)
 
 
 def digest(value: object) -> str:
@@ -106,7 +113,51 @@ async def corpus_version(db: AsyncSession) -> str:
                 PaperChunk.start_char,
                 PaperChunk.end_char,
                 PaperChunk.source_url,
+                PaperChunk.cleaned_text,
+                PaperChunk.index_version,
+                PaperChunk.document_id,
+                PaperChunk.parent_id,
+                PaperChunk.source_spans,
             ).order_by(PaperChunk.id),
+        ),
+        (
+            "source_documents",
+            select(
+                SourceDocument.id,
+                SourceDocument.paper_id,
+                SourceDocument.document_version,
+                SourceDocument.parser_version,
+                SourceDocument.snapshot_digest,
+                SourceDocument.raw_pages,
+                SourceDocument.content_scope,
+                SourceDocument.source_origin,
+                SourceDocument.source_url,
+            ).order_by(SourceDocument.id),
+        ),
+        (
+            "source_generations",
+            select(
+                SourceIndexGeneration.index_version,
+                SourceIndexGeneration.document_id,
+                SourceIndexGeneration.is_active,
+                SourceIndexGeneration.vector_status,
+                SourceIndexGeneration.cleaner_version,
+                SourceIndexGeneration.chunker_version,
+                SourceIndexGeneration.embedding_model_id,
+                SourceIndexGeneration.physical_revision,
+                SourceIndexGeneration.verified_at,
+            ).order_by(SourceIndexGeneration.index_version),
+        ),
+        (
+            "source_parents",
+            select(
+                SourceParent.id,
+                SourceParent.generation_id,
+                SourceParent.document_id,
+                SourceParent.raw_text,
+                SourceParent.cleaned_text,
+                SourceParent.raw_spans,
+            ).order_by(SourceParent.id),
         ),
         (
             "patterns",

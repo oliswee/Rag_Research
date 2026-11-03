@@ -118,3 +118,33 @@ def test_partial_token_usage_is_unknown(unknown_first):
     for input_tokens, output_tokens in values:
         trace.record_llm_usage("local", input_tokens, output_tokens)
     assert trace.record["token_usage"] == {"input_tokens": None, "output_tokens": 5}
+
+
+def test_structured_anchor_trace_allows_only_geometry_and_source_ids():
+    trace = RetrievalTrace("question", {}, corpus_version="test")
+    trace.record_sources(
+        [
+            {
+                "chunk_id": "child",
+                "parent_id": "parent",
+                "document_id": "document",
+                "index_version": "generation",
+                "source_spans": [
+                    {
+                        "page": 1,
+                        "raw_start": 0,
+                        "raw_end": 10,
+                        "block_id": "block",
+                        "bbox": [1, 2, 3, 4],
+                        "paper_id": "private-paper-identity",
+                        "text": "private-source-excerpt",
+                    }
+                ],
+            }
+        ],
+        [],
+        used_vectors=False,
+    )
+    assert "private-paper-identity" not in str(trace.record)
+    assert "private-source-excerpt" not in str(trace.record)
+    assert trace.record["resolved_anchors"][0]["source_spans"][0]["page"] == 1

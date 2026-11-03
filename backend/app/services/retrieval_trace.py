@@ -175,6 +175,74 @@ class RetrievalTrace:
             {"stage": stage, "error_type": type(error).__name__}
         )
 
+    def record_sources(
+        self, sources: list[dict], generations: list, *, used_vectors: bool
+    ):
+        structured = [source for source in sources if source.get("document_id")]
+        if structured:
+            self.record["retrieval_schema"] = "parent_child_v1"
+        self.record["resolved_anchors"] = [
+            {
+                key: source.get(key)
+                for key in (
+                    "chunk_id",
+                    "parent_id",
+                    "document_id",
+                    "document_version",
+                    "index_version",
+                    "parser_version",
+                    "cleaner_version",
+                    "chunker_version",
+                )
+            }
+            for source in structured
+        ]
+        for anchor, source in zip(
+            self.record["resolved_anchors"], structured, strict=True
+        ):
+            anchor["source_spans"] = [
+                {
+                    key: span.get(key)
+                    for key in (
+                        "page",
+                        "raw_start",
+                        "raw_end",
+                        "block_id",
+                        "bbox",
+                    )
+                }
+                for span in source.get("source_spans", [])
+            ]
+        versions = {source["index_version"] for source in structured}
+        publications = (
+            [
+                {
+                    "index_version": generation.index_version,
+                    "physical_revision": generation.physical_revision,
+                    "verified_at": generation.verified_at.isoformat()
+                    if generation.verified_at
+                    else None,
+                    "verification_scope": "generation_at_publication",
+                }
+                for generation in generations
+                if generation.index_version in versions
+                and generation.vector_status == "ready"
+            ]
+            if used_vectors
+            else []
+        )
+        self.record["physical_index_publications"] = publications
+        if (
+            publications
+            and len(structured) == len(sources)
+            and len(publications) == len(versions)
+        ):
+            self.record["physical_index_revision"] = "sha256:" + digest(
+                sorted(
+                    [(p["index_version"], p["physical_revision"]) for p in publications]
+                )
+            )
+
     def record_llm_usage(
         self, model: str, input_tokens: int | None, output_tokens: int | None
     ) -> None:

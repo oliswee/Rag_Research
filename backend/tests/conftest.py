@@ -25,6 +25,22 @@ def legacy_provider_defaults(monkeypatch):
     monkeypatch.setattr(settings, "embedding_provider", "openai")
 
 
+@pytest.fixture(autouse=True)
+def offline_reranker_boundary(monkeypatch):
+    """API/unit tests pin slow inference; CLI benchmarks use real local weights."""
+
+    class EqualScoreModel:
+        model_id = "offline-test-fixture"
+        revision = "fixture-v1"
+
+        def score(self, question, texts):
+            return [0.0] * len(texts)
+
+    monkeypatch.setattr(
+        "app.services.child_reranker._default_scorer", lambda: EqualScoreModel()
+    )
+
+
 @pytest.fixture(scope="function")
 async def async_db_engine():
     """Create an in-memory SQLite engine for testing."""

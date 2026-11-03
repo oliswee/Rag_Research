@@ -72,6 +72,7 @@ class QueryResponse(BaseModel):
         description="Suggested follow-up questions",
     )
     evidence: list[dict] = Field(default_factory=list)
+    context_coverage: dict[str, dict] = Field(default_factory=dict)
     retrieval_mode: str | None = None
     retrieval_query: str | None = None
     query_count: int = 1

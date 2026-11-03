@@ -18,7 +18,7 @@ async def source_chunk(chunk_id: str, db: AsyncSession = Depends(get_db)) -> dic
     if child is None:
         raise HTTPException(404, "Source citation not found")
     try:
-        return await resolve_child(db, child)
+        return await resolve_child(db, child, allow_parent_failure=True)
     except (ValueError, KeyError, TypeError):
         raise HTTPException(409, "Stored source provenance failed validation") from None
 

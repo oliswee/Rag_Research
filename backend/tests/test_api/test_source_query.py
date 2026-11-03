@@ -10,6 +10,51 @@ from app.schemas.query import FollowUpRequest, QueryRequest
 
 
 @pytest.mark.asyncio
+async def test_m4_coverage_names_missing_paper_and_distinguishes_unsent_context(
+    async_db_session, monkeypatch, tmp_path
+):
+    from app.services.retrieval_branches import BranchResult
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "retrieval_trace_path", str(tmp_path / "trace.jsonl"))
+    papers = [
+        Paper(title=t, type=PaperType.research_paper)
+        for t in ["Available study", "Missing study"]
+    ]
+    async_db_session.add_all(papers)
+    await async_db_session.flush()
+    child = PaperChunk(
+        paper_id=papers[0].id,
+        chunk_index=0,
+        text="Latency is 1.5 ms.",
+        content_scope="abstract",
+        checksum="legacy",
+    )
+    async_db_session.add(child)
+    await async_db_session.commit()
+
+    async def branches(*args, **kwargs):
+        return [BranchResult("Q0", "bm25", [(child.id, 1)], "ok", 0)]
+
+    monkeypatch.setattr("app.workflows.source_query.collect_rankings", branches)
+    response = await submit_query(
+        QueryRequest(
+            query="Compare latency",
+            rewrite_query=False,
+            paper_ids=[p.id for p in papers],
+        ),
+        async_db_session,
+    )
+    assert "Missing study" in response["response"] and "unknown" in response["response"]
+    assert response["context_coverage"][papers[0].id]["context_status"] == "included"
+    assert response["context_coverage"][papers[0].id]["prompt_status"] == "not_sent"
+    record = json.loads((tmp_path / "trace.jsonl").read_text())
+    assert record["retrieval_budget"]["candidate_k"] == 30
+    assert record["prompt_evidence_ids"] == []
+    assert record["context_packing"]["actual_prompt_evidence_coverage"] == 0
+
+
+@pytest.mark.asyncio
 async def test_default_uploaded_source_request_and_followup_execute_hybrid(
     async_db_session, monkeypatch, tmp_path
 ):

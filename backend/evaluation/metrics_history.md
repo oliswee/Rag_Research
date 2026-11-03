@@ -178,3 +178,27 @@ K10较高仅是同开发集的探索结果；默认仍K30/RRF60，未完成独�
 原始产物：`data/evaluation/m3_verified_20261024/summary.json`、四个实际模式报告及Trace、`query_plans.jsonl`、`plan_revalidation.json`、两个参数重放报告。初始Ollama未启动时25条失败规划、后续中断产物均保留；实际库检查位于 `data/evaluation/m3_library_20261024/`。详细说明：[m3_development.md](m3_development.md)。
 
 **2026-10-25最终交付验证：**后续完整运行出现891通过/1失败（274.05s），复现异步SQLite interrupt与语句收尾/回滚竞争；移除额外中断计时器，保留原生progress/busy期限。CPU读超时后回滚/继续读有回归，26项定向检查通过（4.77s）。最终完整后端 **893 passed、17 warnings、209.98s**；Ruff check/format149文件通过。完整日志保留在忽略目录 `output/m3_release_tests.log`；失败轮次不替换为成功记录。
+
+## 9. M4 Child Rerank / Parent Context：2026-10-25
+
+同一冻结 QASPER40题（32可回答、8无答案），复用 M3 独立检索列表做 RRF60/30候选回放，实际运行本地 MiniLM Cross-encoder 和预算打包；未重测检索耗时，也未生成答案。公开开发集不是独立项目 Gold。
+
+| 阶段 | Recall/Hit@10 | MRR@10 | nDCG@10 | 完整可见 Evidence 比例 |
+| --- | ---: | ---: | ---: | ---: |
+| RRF Top10 |0.78125|0.368837|0.466038|未打包|
+| Rerank Top10 |0.87500|0.497991|0.591944|未打包|
+| RRF + Flat Context |0.71875|0.361024|0.446321|0.71875|
+| Rerank + Flat Context |0.84375|0.493527|0.581527|0.84375|
+| Rerank + Parent Context |0.84375|0.493527|0.581527|0.84375|
+
+40/40重排成功。模型 Xenova/ms-marco-MiniLM-L-6-v2，FastEmbed0.9.0、CPU2线程；权重及配置指纹 sha256:7d8561a043ed799d7c810903011deab75fd98ce67dec33f436a80cc4268d140f。重排p50/p95=4195.401/5743.242ms，模型加载888.918ms；经验分位点为floor((n-1)*p)，不含改写/检索/打包/Judge，不构成SLA。BGE向量模型未变。
+
+8192 UTF-8字节保守BPE token单位预算、每父段2048；平均序列化上下文单位7807.00/7739.35/7990.50（RRF Flat/Rerank Flat/Parent），入上下文Child比例0.735/0.730/0.730。父窗口累计124个，但本轮父扩展没有进一步增加完整标签证据覆盖。重排后仍有1/32命中因预算未进入上下文，全部保留原因。此实验没有调用答案生成，实际Prompt发送覆盖为0，与已组装上下文覆盖分开记录。
+
+QASPER父段是明确标注的同章节相邻3个公开文本Chunk适配，不是M2真实PDF父段。原生库另外实测：30候选→5Child/3上下文块/7939单位，3块原文锚点与全部引文逐字验证通过，语料指纹未改；默认预算下0个父扩展块。单Child、父预算4096的独立探针产生4335单位窗口并通过原文映射，不能当默认配置收益。2个固定数字/单位模型诊断均把预设正确项排第一，不代表通用数值准确率。
+
+原始记录：忽略目录data/evaluation/m4_20261025/及m4_library_20261025/。详情见m4_development.md。初轮完整后端929通过/17警告/11662.01s；独立复核3个P2均先复现失败后修复，41定向检查通过12.87s。最终全量验证与本地DeepEval结果待追加，未合并。
+
+**M4 本地 DeepEval 实测补充：**同一公开参考题、每模式首个上下文，Qwen3:4b-instruct（digest0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0）、DeepEval4.2.8、温度0、阈值0.5、默认模板、每项60秒：RRF Flat Relevancy0/Precision1（42407.153/19954.842ms）；Rerank Flat 0.166667/1（27531.665/18131.925ms）；Parent 0.166667/1（28323.249/19251.984ms）。6项均evaluated，Relevancy全部低于阈值；单上下文Precision=1不能证明整体排序质量或抵消低相关度，不宣称答案质量提升。API子调用数及tokens为null；框架cost=0不等于完整算力成本。没有付费云调用。
+
+**M4 最终交付验证：**一轮全量931通过/17警告/1测试启动错误（397.46s）；pytest-asyncio在Windows创建事件循环socketpair时返回10055，测试体尚未运行。对应metadata文件单独重跑16/16通过0.52s；随后串行完整回归 **932 passed、17 warnings、432.89s**。失败与成功日志分别保留output/m4_final_tests.log和m4_serial_retry_tests.log，不覆盖失败记录。Ruff check/format158文件通过；整个M4分支24文件隐私检查通过，实测代码指纹与当前App源码相同。远端CI以依赖Draft PR的最终提交记录为准，未合并。

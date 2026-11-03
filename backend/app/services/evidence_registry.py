@@ -24,6 +24,10 @@ def _hash(text):
 
 
 def _snapshot(source, *, origin, title=None, doi=None):
+    from app.services.response_safety import contains_credential
+
+    if contains_credential(source) or contains_credential(title or ""):
+        raise ValueError("Credential-bearing evidence cannot be returned")
     text = source.get("excerpt")
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         raise ValueError("Invalid original excerpt")

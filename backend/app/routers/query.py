@@ -22,6 +22,7 @@ from app.services.evidence_routing import RoutingDecision, Sufficiency, parse_po
 from app.services.grounded_qa import answer_grounded
 from app.services.local_execution import local_only_request, loopback_host, loopback_url
 from app.services.query_clarification import clarify_scope
+from app.services.request_budget import current_budget, request_limits
 from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
 from app.services.trace_versions import corpus_version
@@ -69,6 +70,11 @@ def _enforce_local_only(local_only):
 
 
 def _write_trace(trace):
+    if trace.record.get("total_ms") is None:
+        trace.finish("interrupted", trace.record["prompt_evidence_ids"])
+    budget = current_budget.get()
+    if budget is not None:
+        trace.record["request_budget"] = budget.snapshot()
     try:
         trace.append(Path(settings.retrieval_trace_path))
     except OSError as exc:
@@ -116,6 +122,7 @@ async def _capture_corpus_version(db, trace):
 
 
 @router.post("")
+@request_limits
 async def submit_query(
     request: QueryRequest, db: AsyncSession = Depends(get_db)
 ) -> dict:
@@ -342,6 +349,7 @@ async def _submit_query_impl(request, db, trace):
 
 
 @router.post("/followup")
+@request_limits
 async def follow_up_query(
     request: FollowUpRequest, db: AsyncSession = Depends(get_db)
 ) -> dict:

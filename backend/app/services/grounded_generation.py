@@ -47,7 +47,15 @@ class VerificationBudget:
             raise ValueError("Invalid verification budget")
 
     async def call(
-        self, client, system, payload, *, max_tokens, trace=None, source_ids=None
+        self,
+        client,
+        system,
+        payload,
+        *,
+        max_tokens,
+        trace=None,
+        source_ids=None,
+        stage="generation",
     ):
         serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         cost = len((system + serialized).encode())
@@ -66,10 +74,35 @@ class VerificationBudget:
             trace.record["prompt_evidence_ids"] = list(
                 dict.fromkeys([*trace.record["prompt_evidence_ids"], *source_ids])
             )
-        async with asyncio.timeout(min(self.call_timeout, remaining)):
-            return await client.complete_json(
-                system_prompt=system, user_prompt=serialized, max_tokens=max_tokens
-            )
+        started = time.perf_counter()
+        usage_before = dict(trace.record["token_usage"]) if trace is not None else {}
+        calls_before = trace.record["llm_calls"] if trace is not None else 0
+        try:
+            async with asyncio.timeout(min(self.call_timeout, remaining)):
+                return await client.complete_json(
+                    system_prompt=system, user_prompt=serialized, max_tokens=max_tokens
+                )
+        finally:
+            if trace is not None:
+                stages = trace.record["stage_ms"]
+                stages[stage] = round(
+                    stages.get(stage, 0) + (time.perf_counter() - started) * 1000, 3
+                )
+                usage = trace.record.setdefault("stage_usage", {}).setdefault(
+                    stage,
+                    {"successful_calls": 0, "input_tokens": 0, "output_tokens": 0},
+                )
+                delta_calls = trace.record["llm_calls"] - calls_before
+                usage["successful_calls"] += delta_calls
+                for key in ("input_tokens", "output_tokens"):
+                    after, before = trace.record["token_usage"][key], usage_before[key]
+                    delta = after - (before or 0) if after is not None else None
+                    if delta_calls:
+                        usage[key] = (
+                            usage[key] + delta
+                            if usage[key] is not None and delta is not None
+                            else None
+                        )
 
 
 async def _close_owned(client):
@@ -258,6 +291,7 @@ async def generate_grounded(
                 _semantic_payload(question, candidates),
                 max_tokens=verification_tokens,
                 trace=trace,
+                stage="verification",
             )
             checked = checked if isinstance(checked, dict) else {}
             verdicts = {}

@@ -12,6 +12,7 @@ from anthropic import APIConnectionError, APIError, RateLimitError
 
 from app.config import ModelID, settings
 from app.services.local_execution import local_only_request
+from app.services.request_budget import current_budget
 
 if TYPE_CHECKING:
     from app.services.retrieval_trace import RetrievalTrace
@@ -154,6 +155,11 @@ class LLMClient:
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
+            budget = current_budget.get()
+            if budget is not None:
+                budget.reserve_model(
+                    system_prompt + user_prompt, max_tokens, provider=self.provider
+                )
             try:
                 response = await self.client.messages.create(
                     model=self.model,
@@ -198,7 +204,7 @@ class LLMClient:
                 if status_code not in {408, 409} and not (
                     status_code and status_code >= 500
                 ):
-                    raise LLMError(f"Claude API error: {e}") from e
+                    raise LLMError(f"Claude API error: {type(e).__name__}") from e
                 last_error = e
                 if attempt + 1 >= self.max_retries:
                     break
@@ -206,13 +212,20 @@ class LLMClient:
                     self.trace.record_llm_retry(type(e).__name__)
                 await asyncio.sleep(2**attempt)
 
-        raise LLMError(f"Failed after {self.max_retries} retries: {last_error}")
+        raise LLMError(
+            f"Failed after {self.max_retries} retries: {type(last_error).__name__}"
+        )
 
     async def _complete_openai_compatible(
         self, system_prompt: str, user_prompt: str, max_tokens: int, temperature: float
     ) -> LLMResponse:
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
+            budget = current_budget.get()
+            if budget is not None:
+                budget.reserve_model(
+                    system_prompt + user_prompt, max_tokens, provider=self.provider
+                )
             try:
                 response = await self.client.chat.completions.create(
                     model=self.model,
@@ -318,6 +331,4 @@ class LLMClient:
 
             return json.loads(content.strip())
         except json.JSONDecodeError as e:
-            raise LLMError(
-                f"Failed to parse JSON response: {e}\nContent: {response.content[:500]}"
-            ) from e
+            raise LLMError("Failed to parse JSON response") from e

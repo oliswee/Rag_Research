@@ -135,6 +135,11 @@ class WebBudget:
     def consume(self):
         if self.attempts >= settings.web_max_attempts or self.remaining <= 0:
             raise TimeoutError("Web budget exhausted")
+        from app.services.request_budget import current_budget
+
+        request_budget = current_budget.get()
+        if request_budget is not None:
+            request_budget.reserve_external()
         self.attempts += 1
 
 

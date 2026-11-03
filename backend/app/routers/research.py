@@ -10,6 +10,7 @@ from app.schemas.research import CompareRequest
 from app.services.answer_feedback import record_run
 from app.services.evidence_routing import parse_policy
 from app.services.local_execution import local_only_request
+from app.services.request_budget import request_limits
 from app.services.retrieval_trace import RetrievalTrace
 from app.workflows.comparison import DEFAULT_QUESTION, run_comparison
 
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/api/research", tags=["research"])
 
 
 @router.post("/compare")
+@request_limits
 async def compare(request: CompareRequest, db: AsyncSession = Depends(get_db)) -> dict:
     policy = parse_policy(
         QueryRequest(

@@ -134,7 +134,11 @@ def scientific_reasons(text, quotes, *, abstract_only=False):
 
 
 def check_proposal(proposal, registry, *, paper_id=None):
+    from app.services.response_safety import contains_credential
+
     proposal = proposal if isinstance(proposal, dict) else {}
+    if contains_credential(proposal):
+        proposal = {}
     result = AtomicClaim(
         claim_id=str(proposal.get("claim_id", "claim"))[:100],
         paper_id=paper_id or proposal.get("paper_id"),

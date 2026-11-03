@@ -69,10 +69,10 @@
 
 **Interfaces:** request-local deadline/call/input-output reservation/external-attempt counters via ContextVar; existing rewrite/retrieval/rerank/packing/Web/generation/verification remain sub-budgets. Exceeding a budget returns an explicit safe diagnostic and preserves already admitted source evidence where available. Every client closes and context resets on cancellation/error. Stage summaries include p50/p95 only from observed samples, separate reservations from usage and generation from Judge costs.
 
-- [ ] RED timeout/call/token/network/currency-unknown limits, retries, concurrent isolation, context reset, missing services and partial failure; no post-exhaustion call or unchecked fact.
-- [ ] RED at least six malicious title/abstract/PDF content cases plus legitimate controls: rule override, secret request, invented citation, cross-paper scope, unauthorised write instruction and unsafe link. Use disposable canaries/fixtures, never real keys.
-- [ ] Implement bounded integrations and sanitization without granting tools to document text or relaxing M5 privacy/M6 original-citation checks.
-- [ ] GREEN targeted M3-M6/API/Trace/security suites; commit.
+- [x] RED timeout/call/token/network/currency-unknown limits, retries, concurrent isolation, context reset, missing services and partial failure; no post-exhaustion call or unchecked fact.
+- [x] RED at least six malicious title/abstract/PDF content cases plus legitimate controls: rule override, secret request, invented citation, cross-paper scope, unauthorised write instruction and unsafe link. Use disposable canaries/fixtures, never real keys.
+- [x] Implement bounded integrations and sanitization without granting tools to document text or relaxing M5 privacy/M6 original-citation checks.
+- [x] GREEN targeted M3-M6/API/Trace/security suites; commit.
 
 ## Task5 — Actual local diagnostics and delivery
 

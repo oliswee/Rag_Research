@@ -21,8 +21,8 @@ class QueryRequest(BaseModel):
         description="Optional session ID to continue an existing conversation",
     )
     paper_ids: list[str] | None = None
-    retrieval_mode: Literal["hybrid", "dense", "bm25"] = "dense"
-    rewrite_query: bool = False
+    retrieval_mode: Literal["hybrid", "dense", "bm25"] = "hybrid"
+    rewrite_query: bool = True
     local_only: bool = False
     latest: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
@@ -45,7 +45,7 @@ class FollowUpRequest(BaseModel):
     )
     paper_ids: list[str] | None = None
     retrieval_mode: Literal["hybrid", "dense", "bm25"] | None = None
-    rewrite_query: bool = False
+    rewrite_query: bool = True
     local_only: bool = False
     latest: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
@@ -74,6 +74,8 @@ class QueryResponse(BaseModel):
     evidence: list[dict] = Field(default_factory=list)
     retrieval_mode: str | None = None
     retrieval_query: str | None = None
+    query_count: int = 1
+    retrieval_status: str | None = None
     rewrite_status: Literal["disabled", "applied", "unavailable", "failed"] | None = (
         None
     )

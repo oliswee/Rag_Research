@@ -169,6 +169,9 @@ async def evaluate_bm25(
     corpus_version: str = "unversioned",
     corpus_public: bool = False,
     mode: str = "bm25",
+    query_plans: dict | None = None,
+    per_query_k: int | None = None,
+    rrf_k: int | None = None,
 ) -> dict:
     """Use the app retrieval path with isolated SQLite and benchmark-scoped vectors."""
     if mode not in {"bm25", "dense", "hybrid"}:
@@ -238,6 +241,8 @@ async def evaluate_bm25(
                 )
                 if trace is not None:
                     trace.record_query(case["query"], "disabled")
+                    if query_plans is not None:
+                        trace.record_query_plan(query_plans[case["query"]])
                 start = time.perf_counter()
                 try:
                     evidence, actual_mode = await retrieve(
@@ -247,6 +252,26 @@ async def evaluate_bm25(
                         mode=mode,
                         trace=trace,
                         vector_index=index,
+                        **(
+                            {
+                                "vector_reader_factory": lambda: SourceVectorIndex(
+                                    dataset_id_override=index.dataset_id
+                                )
+                            }
+                            if index is not None
+                            else {}
+                        ),
+                        **(
+                            {"queries": query_plans[case["query"]].queries}
+                            if query_plans is not None
+                            else {}
+                        ),
+                        **(
+                            {"per_query_k": per_query_k}
+                            if per_query_k is not None
+                            else {}
+                        ),
+                        **({"rrf_k": rrf_k} if rrf_k is not None else {}),
                     )
                     if trace is not None:
                         trace.finish("retrieval_only", [])

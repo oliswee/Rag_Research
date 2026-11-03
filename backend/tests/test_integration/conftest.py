@@ -159,6 +159,11 @@ def mock_embedding_service() -> MagicMock:
 
     service.prepare_embedding_text = prepare_text
     service.generate_embedding = generate_embedding
+
+    async def generate_text_batch(texts):
+        return [(await generate_embedding(text)).embedding for text in texts]
+
+    service.generate_text_batch = generate_text_batch
     return service
 
 
@@ -353,6 +358,11 @@ def integration_client(
         patch("app.workflows.query.VectorStoreService", return_value=mock_vector_store),
         patch("app.workflows.query.LLMClient", return_value=mock_llm_client),
         patch("app.workflows.query.SessionManager", return_value=mock_session_manager),
+        patch("app.routers.query.session_manager", mock_session_manager),
+        patch(
+            "app.services.embedding_service.EmbeddingService",
+            return_value=mock_embedding_service,
+        ),
         patch("app.routers.papers.VectorStoreService", return_value=mock_vector_store),
         patch(
             "app.routers.patterns.EmbeddingService", return_value=mock_embedding_service

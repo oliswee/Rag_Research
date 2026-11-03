@@ -244,12 +244,12 @@ class TestQueryErrors:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    def test_query_embedding_failure_returns_500(
+    def test_query_embedding_failure_falls_back_to_bm25(
         self,
         integration_client,
         mock_vector_store,
     ):
-        """Embedding service failure returns 500."""
+        """Source embedding failure remains visible and preserves keyword search."""
         # Add some data first
         upload_resp = integration_client.post(
             "/api/papers",
@@ -264,29 +264,30 @@ class TestQueryErrors:
         )
 
         # Now make embedding service fail
-        with patch("app.workflows.query.EmbeddingService") as MockService:
+        with patch("app.services.embedding_service.EmbeddingService") as MockService:
             mock_service = MockService.return_value
 
             async def failing_embed(text):
                 raise Exception("Embedding API unavailable")
 
-            mock_service.generate_embedding = failing_embed
+            mock_service.generate_text_batch = failing_embed
 
             response = integration_client.post(
                 "/api/query",
-                json={"query": "What are the findings?"},
+                json={"query": "Paper content"},
             )
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["detail"]["code"] == "QUERY_FAILED"
+        assert data["retrieval_mode"] == "bm25_fallback"
+        assert data["evidence"]
 
-    def test_query_vector_search_failure_returns_500(
+    def test_query_vector_search_failure_falls_back_to_bm25(
         self,
         integration_client,
         mock_embedding_service,
     ):
-        """Vector store search failure returns 500."""
+        """Qdrant failure preserves source evidence with explicit fallback."""
         # Add some data
         upload_resp = integration_client.post(
             "/api/papers",
@@ -303,24 +304,26 @@ class TestQueryErrors:
         # Make vector store fail
         with (
             patch(
-                "app.workflows.query.EmbeddingService",
+                "app.services.embedding_service.EmbeddingService",
                 return_value=mock_embedding_service,
             ),
-            patch("app.workflows.query.VectorStoreService") as MockStore,
+            patch("app.workflows.source_query.SourceVectorIndex") as MockStore,
         ):
             mock_store = MockStore.return_value
 
-            async def failing_search(*args, **kwargs):
+            def failing_search(*args, **kwargs):
                 raise Exception("Qdrant connection failed")
 
             mock_store.search = failing_search
 
             response = integration_client.post(
                 "/api/query",
-                json={"query": "What are the findings?"},
+                json={"query": "Paper content"},
             )
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["retrieval_mode"] == "bm25_fallback"
+        assert response.json()["evidence"]
 
 
 class TestInvalidRequestFormats:

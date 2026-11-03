@@ -1,7 +1,5 @@
 """SQLite is authoritative even when a vector service returns stale IDs."""
 
-from types import SimpleNamespace
-
 import pytest
 
 from app.models import Paper, PaperType
@@ -35,8 +33,8 @@ async def test_stale_dense_ids_fall_back_to_active_sources_and_record_anchors(
     await async_db_session.commit()
 
     class Embedder:
-        async def generate_embedding(self, query):
-            return SimpleNamespace(embedding=[1.0])
+        async def generate_text_batch(self, queries):
+            return [[1.0] for _ in queries]
 
     class StaleIndex:
         dataset_id = "stale-test"

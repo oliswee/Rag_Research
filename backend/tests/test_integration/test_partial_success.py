@@ -321,9 +321,12 @@ class TestQueryPartialSuccess:
                 json={"query": "What patterns exist?"},
             )
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert "synthesis failed" in data["detail"]["message"].lower()
+        # Unconfigured generation returns an honest source/abstention response;
+        # failure in the retired Pattern synthesizer cannot break source queries.
+        assert data["sources"] == []
+        assert data["confidence"] in {"low", "medium"}
 
 
 class TestDeletionPartialSuccess:

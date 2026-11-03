@@ -20,7 +20,7 @@ from app.services.retrieval_trace import RetrievalTrace
 from app.services.session_manager import session_manager
 from app.services.trace_versions import corpus_version
 from app.workflows import QueryInput, QueryWorkflow
-from app.workflows.query_rewrite import rewrite_for_retrieval
+from app.workflows.query_expansion import QueryPlan, RetrievalQuery, expand_queries
 from app.workflows.source_query import answer_from_evidence, has_source_chunks, retrieve
 
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ async def _submit_query_impl(
     if (
         "retrieval_mode" in request.model_fields_set
         or request.paper_ids is not None
-        or (request.rewrite_query and await has_source_chunks(db))
+        or await has_source_chunks(db)
         or (has_online_imports and await has_source_chunks(db))
     ):
         session = (
@@ -153,9 +153,21 @@ async def _submit_query_impl(
         prompt_ids: list[str] = []
         try:
             rewrite_start = time.perf_counter()
-            retrieval_query, rewrite_status = await rewrite_for_retrieval(
-                request.query, session.history, request.rewrite_query, trace=trace
-            )
+            query_plan = None
+            if request.retrieval_mode == "hybrid":
+                query_plan = await expand_queries(
+                    request.query, session.history, request.rewrite_query, trace=trace
+                )
+                retrieval_query = request.query
+                rewrite_status = query_plan.status
+            else:
+                query_plan = QueryPlan(
+                    [RetrievalQuery("Q0", "original", request.query, request.query)],
+                    "disabled",
+                    "explicit_baseline",
+                )
+                trace.record_query_plan(query_plan)
+                retrieval_query, rewrite_status = request.query, "disabled"
             trace.record_query(retrieval_query, rewrite_status)
             trace.record["stage_ms"]["rewrite"] = round(
                 (time.perf_counter() - rewrite_start) * 1000, 3
@@ -169,6 +181,7 @@ async def _submit_query_impl(
                 year_to=request.year_to,
                 provider=request.provider,
                 trace=trace,
+                **({"queries": query_plan.queries} if query_plan else {}),
             )
             prompt_ids = (
                 [item["chunk_id"] for item in evidence] if llm_available() else []
@@ -223,6 +236,8 @@ async def _submit_query_impl(
             retrieval_mode=mode,
             retrieval_query=retrieval_query,
             rewrite_status=rewrite_status,
+            query_count=len(query_plan.queries) if query_plan else 1,
+            retrieval_status=query_plan.reason if query_plan else "explicit_baseline",
         ).model_dump()
     trace.record_query(request.query, "legacy")
     trace.record_index("legacy_pattern_unavailable")
@@ -319,7 +334,8 @@ async def _follow_up_query_impl(
     await _capture_corpus_version(db, trace)
     if (
         request.retrieval_mode
-        or (request.rewrite_query and await has_source_chunks(db))
+        or request.paper_ids is not None
+        or await has_source_chunks(db)
         or (has_online_imports and await has_source_chunks(db))
     ):
         return await _submit_query_impl(
@@ -327,7 +343,7 @@ async def _follow_up_query_impl(
                 query=request.query,
                 session_id=request.session_id,
                 paper_ids=request.paper_ids,
-                retrieval_mode=request.retrieval_mode or "dense",
+                retrieval_mode=request.retrieval_mode or "hybrid",
                 rewrite_query=request.rewrite_query,
                 local_only=request.local_only,
                 latest=request.latest,

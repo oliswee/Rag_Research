@@ -12,8 +12,26 @@ A local research assistant for discovering papers and tracing answers to source 
 - Click **Add to library** on one result or select several for a batch import. Open PDFs are parsed by page; unavailable PDFs fall back to abstracts or metadata. DOI, arXiv and provider IDs prevent duplicate imports. The library has no fixed paper count limit.
 - Upload PDFs or paste text, and review generated claims with the configured local or remote model.
 - Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix. Generated claims must cite an existing excerpt and quote text from it; a second model call checks whether each claim is supported by those quotes before it is shown. This adds latency, and remote providers also charge for API usage. Model-based checks cannot guarantee factual correctness. If the support check is unavailable, no unchecked generated claim is shown. Previously approved patterns that are rejected are excluded from legacy search.
-- Use SQLite FTS5 keyword search, Qdrant dense search, or experimental RRF hybrid search. Dense retrieval falls back to keyword search when vectors are unavailable. Each answer cites only SQLite excerpts; abstract excerpts have no invented page number.
-- The query page automatically turns questions into standalone retrieval queries and adds up to three related search terms when the configured model is available. The answer still addresses the original question, and the effective search query is shown with the result. If rewriting is unavailable, search uses the current question with the previous question for context. The extra model call adds latency; remote providers also charge for API usage. Keyword expansion can occasionally broaden results beyond the intended topic.
+- Hybrid retrieval is the default: bounded BM25/Dense branches, one RRF fusion, child reranking and source-anchored parent context. BM25-only and Dense-only remain available; a failed dense service can fall back to lexical search. Citations are revalidated against immutable SQLite originals or admitted current-request Web snapshots. Abstract/provided-text evidence has no invented PDF page.
+- Retrieval keeps the original question as Q0 and may add at most two validated variants with one model call. Rejected/unavailable rewrites retain Q0. Local-first routing can attempt one correction and a bounded academic Web fallback when permitted. Local-only and uploaded-only policy block Web. Model rewriting and verification add latency; remote providers also have API costs.
+- Library publication status is cached and unknown-safe, with an explicit public DOI check. Answers and comparison matrices offer source-bound local feedback. Real feedback stays pending review; synthetic regression results do not become training data or human Gold.
+
+## Evaluation and delivery status
+
+M1–M7 are merged. M8 evaluation tools, source-anchored candidate materials and
+development diagnostics are documented in the [final evaluation directory](docs/evaluation/README.md).
+Measured results and limitations are linked from the
+[final report](docs/evaluation/evaluation_final.md) and the separate
+[metrics history](backend/evaluation/metrics_history.md).
+Independent human Gold/PDF/claim-support acceptance is separate from engineering
+checks and public-reference/AI review; no overall accuracy claim follows from
+the development samples.
+
+See [architecture decisions](docs/architecture_decisions.md),
+[maintenance and budgets](docs/reliability_maintenance.md) and the
+[walkthrough/recording script](docs/demo_script.md). The runtime uses a bounded
+deterministic workflow; autonomous agent loops and associated training systems
+remain future work with explicit evaluation triggers.
 
 ## Run locally
 

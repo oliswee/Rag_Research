@@ -1,0 +1,9 @@
+case_id,answerable_dataset_reference,actual_support_status,generated_supported_claims,human_correct_refusal,human_false_refusal
+4d30c2223939b31216f2e90ef33fe0db97e962ac,True,evidence_only,0,,
+9e391c8325b48f6119ca4f3d428b1b2b037f5c13,True,partial,1,,
+312417675b3dc431eb7e7b16a917b7fed98d4376,True,evidence_only,0,,
+191d4fe8a37611b2485e715bb55ff1a30038ad6a,True,evidence_only,0,,
+827b5bd215599623a3125afe331b56b89b42bf09,True,evidence_only,0,,
+609fbe627309775de415682f48588937d5dd8748,True,supported,1,,
+1df24849e50fcf22f0855e0c0937c1288450ed5c,False,partial,1,,
+a45a86b6a02a98d3ab11f1d04acd3446e95f5a16,False,evidence_only,0,,

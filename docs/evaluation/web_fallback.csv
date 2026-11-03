@@ -1,0 +1,17 @@
+scope,case,expected_web,actual_web,human_reviewed
+injected_route_fixture,sufficient,False,False,False
+injected_route_fixture,empty_local,True,True,False
+injected_route_fixture,latest,True,True,False
+injected_route_fixture,discover,True,True,False
+injected_route_fixture,local_latest_conflict,False,False,False
+injected_route_fixture,uploaded_latest_conflict,False,False,False
+injected_route_fixture,literal_privacy,False,False,False
+injected_route_fixture,known_missing,True,True,False
+injected_route_fixture,abstract_only,True,True,False
+injected_route_fixture,numbers_missing,True,True,False
+injected_route_fixture,second_question_missing,True,True,False
+injected_route_fixture,unanchored,True,True,False
+injected_route_fixture,explicit_baseline,False,False,False
+injected_route_fixture,conflicting,True,True,False
+injected_route_fixture,semantic_synonym_challenge,False,True,False
+injected_route_fixture,lexical_without_finding_challenge,True,False,False

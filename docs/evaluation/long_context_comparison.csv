@@ -1,0 +1,5 @@
+case_id,mode,status,context_budget,support_status,pipeline_calls,human_answer_completeness,judge_comparison
+8383e52b2adbbfb533fbe8179bc8dae11b3ed6da,rag,measured,8192,supported,2,,not_evaluated
+8383e52b2adbbfb533fbe8179bc8dae11b3ed6da,raw_full_paper,measured,8192,evidence_only,1,,not_evaluated
+a45a86b6a02a98d3ab11f1d04acd3446e95f5a16,rag,measured,8192,evidence_only,1,,not_evaluated
+a45a86b6a02a98d3ab11f1d04acd3446e95f5a16,raw_full_paper,measured,8192,evidence_only,1,,not_evaluated

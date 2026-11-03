@@ -1,0 +1,22 @@
+{
+  "formal_m8_accepted": false,
+  "models_in_initial_prospective_freeze": false,
+  "independent_human_gold": 0,
+  "independent_human_pdf_reviews": 0,
+  "independent_human_error_reviews": 0,
+  "human_claim_support": null,
+  "real_user_study_participants": 0,
+  "fake_pdf_pages": 0,
+  "local_only_web_citations": 0,
+  "citation_binding_failures": 0,
+  "credential_gate": "existing_M7_and_final_security_tests_must_pass",
+  "new_default_enabled": false,
+  "new_ui_screenshot": "blocked_by_automatic_approval",
+  "pending": [
+    "30\u201350 independently verified human Gold cases",
+    "50 current-parser human PDF reviews",
+    "10 human error-attribution checks",
+    "human claim-support calibration for six scenario classes"
+  ],
+  "optional_user_study": "not_performed_no_participants_available"
+}

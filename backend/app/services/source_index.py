@@ -10,11 +10,11 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    HasIdCondition,
     IsEmptyCondition,
     MatchAny,
     MatchValue,
     PayloadField,
-    PointIdsList,
     PointStruct,
     Range,
     VectorParams,
@@ -299,5 +299,13 @@ class SourceVectorIndex:
     def delete(self, chunk_ids: list[str]) -> None:
         if chunk_ids and self.client.collection_exists(CHUNK_COLLECTION):
             self.client.delete(
-                CHUNK_COLLECTION, points_selector=PointIdsList(points=chunk_ids)
+                CHUNK_COLLECTION,
+                points_selector=Filter(
+                    must=[
+                        HasIdCondition(has_id=chunk_ids),
+                        FieldCondition(
+                            key="dataset_id", match=MatchValue(value=self.dataset_id)
+                        ),
+                    ]
+                ),
             )

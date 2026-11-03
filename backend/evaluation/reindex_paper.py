@@ -14,11 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session_maker, engine
 from app.models import Paper, PaperChunk, SourceDocument, SourceIndexGeneration
+from app.services.incremental_index import sync_generation as publish_generation
 from app.services.parent_child import stage_generation
 from app.services.pdf_parser import PDFPage, PDFParseResult, PDFParserService
 from app.services.pdf_structure import PDFBlock
 from app.services.source_anchors import validate_document
-from app.services.versioned_vectors import publish_generation
 
 
 async def reindex_paper(

@@ -6,7 +6,13 @@ from types import MappingProxyType
 
 from sqlalchemy import select
 
-from app.models import Paper, PaperChunk, PaperIdentifier, PaperStatus
+from app.models import (
+    Paper,
+    PaperChunk,
+    PaperIdentifier,
+    PaperStatus,
+    SourceIndexGeneration,
+)
 from app.schemas.evidence import Citation, EvidenceSnapshot, EvidenceSpan
 from app.services.academic_search import normalize_doi, safe_url
 from app.services.source_anchors import resolve_child
@@ -234,6 +240,17 @@ async def build_registry(
                 original = await resolve_child(db, child, allow_parent_failure=True)
                 if original.get("status") == "retired":
                     raise ValueError("Retired generation cannot support new findings")
+                if child.index_version == "legacy" and await db.scalar(
+                    select(SourceIndexGeneration.index_version)
+                    .where(
+                        SourceIndexGeneration.paper_id == paper.id,
+                        SourceIndexGeneration.is_active.is_(True),
+                    )
+                    .limit(1)
+                ):
+                    raise ValueError(
+                        "Superseded legacy source cannot support new findings"
+                    )
                 for key in (
                     "paper_id",
                     "excerpt",

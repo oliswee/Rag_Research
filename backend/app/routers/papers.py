@@ -21,7 +21,8 @@ from app.db import get_db
 from app.models import Paper, PaperChunk, PaperStatus, PaperType, Pattern
 from app.schemas.paper import PaperMetadataInput, PaperResponse
 from app.services import VectorStoreService
-from app.services.source_index import SourceVectorIndex
+from app.services.index_maintenance import queue_source_deletion, retry_source_deletions
+from app.services.source_index import SourceVectorIndex, dataset_id
 from app.workflows import IngestionInput, IngestionWorkflow
 
 logger = logging.getLogger(__name__)
@@ -311,6 +312,8 @@ async def delete_paper(
     for pattern in patterns:
         await db.delete(pattern)
 
+    # This work item has no Paper FK: it must survive the explicit paper deletion.
+    cleanup = await queue_source_deletion(db, dataset_id(), list(chunk_ids))
     # Delete paper
     await db.delete(paper)
     await db.commit()
@@ -321,8 +324,17 @@ async def delete_paper(
         await vector_store.delete_by_paper_id(paper_id)
     except Exception as e:
         # Log but don't fail - paper is already deleted
-        logger.warning(f"Failed to delete vectors for paper {paper_id}: {e}")
+        logger.warning("Pattern vector cleanup pending (%s)", type(e).__name__)
+    source_index = None
     try:
-        SourceVectorIndex().delete(list(chunk_ids))
+        source_index = SourceVectorIndex()
+        await retry_source_deletions(db, source_index)
+        await db.commit()
     except Exception as e:
-        logger.warning("Failed to delete source vectors for paper %s: %s", paper_id, e)
+        if cleanup is not None:
+            cleanup.error_type = type(e).__name__
+            await db.commit()
+        logger.warning("Source vector cleanup pending (%s)", type(e).__name__)
+    finally:
+        if source_index is not None:
+            source_index.client.close()

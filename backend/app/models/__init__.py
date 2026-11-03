@@ -1,6 +1,7 @@
 """SQLAlchemy ORM models."""
 
 from app.models.base import Base
+from app.models.maintenance import EmbeddingMemo, SourceDeletionJob, SourceSyncState
 from app.models.paper import Paper, PaperStatus, PaperType
 from app.models.pattern import Pattern, PatternStatus
 from app.models.source import (
@@ -18,6 +19,9 @@ from app.models.source_document import (
 
 __all__ = [
     "Base",
+    "EmbeddingMemo",
+    "SourceDeletionJob",
+    "SourceSyncState",
     "Paper",
     "PaperStatus",
     "PaperType",

@@ -18,10 +18,10 @@ from app.models import (
 )
 from app.services.discovery import DiscoveryService
 from app.services.fulltext_locations import FullTextResolver
+from app.services.incremental_index import sync_generation as publish_generation
 from app.services.parent_child import stage_generation
 from app.services.pdf_download import download_pdf
 from app.services.pdf_parser import PDFParserService, parser_warnings
-from app.services.versioned_vectors import publish_generation
 
 logger = logging.getLogger(__name__)
 

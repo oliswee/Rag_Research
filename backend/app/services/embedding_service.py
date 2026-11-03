@@ -1,6 +1,7 @@
 """Embedding service for pattern vectors."""
 
 import asyncio
+import hashlib
 import logging
 from dataclasses import dataclass
 
@@ -8,6 +9,7 @@ import openai
 from openai import APIConnectionError, APIError, RateLimitError
 
 from app.config import settings
+from app.services.local_execution import local_only_request
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,30 @@ EMBEDDING_DIMENSIONS = 1536
 # Batch settings
 BATCH_SIZE = 20
 MAX_CHARS = 30_000  # ~8K tokens
+
+
+def embeddings_available() -> bool:
+    return settings.embedding_provider == "fastembed" or bool(settings.openai_api_key)
+
+
+def configured_embedding_dimensions() -> int:
+    if settings.embedding_provider == "openai":
+        return EMBEDDING_DIMENSIONS
+    if settings.embedding_provider != "fastembed":
+        raise ValueError(
+            f"Unsupported embedding provider: {settings.embedding_provider}"
+        )
+    from fastembed import TextEmbedding
+
+    return TextEmbedding.get_embedding_size(settings.fastembed_model)
+
+
+def embedding_collection(base_name: str) -> str:
+    """Keep vectors from different models in separate Qdrant collections."""
+    if settings.embedding_provider == "openai":
+        return base_name
+    model_hash = hashlib.sha256(settings.fastembed_model.encode()).hexdigest()[:10]
+    return f"{base_name}_local_{model_hash}"
 
 
 class EmbeddingError(Exception):
@@ -37,13 +63,14 @@ class EmbeddingResult:
 
 
 class EmbeddingService:
-    """Service for generating pattern embeddings using OpenAI."""
+    """Generate embeddings locally by default, or through explicit OpenAI opt-in."""
 
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = EMBEDDING_MODEL,
+        model: str | None = None,
         max_retries: int = 3,
+        provider: str | None = None,
     ) -> None:
         """Initialize embedding service.
 
@@ -52,14 +79,48 @@ class EmbeddingService:
             model: Embedding model to use.
             max_retries: Number of retry attempts for transient errors.
         """
-        self.api_key = api_key or settings.openai_api_key
-        self.model = model
+        configured = getattr(settings, "embedding_provider", "openai")
+        self.provider = provider or (
+            "openai" if api_key or not isinstance(configured, str) else configured
+        )
+        if self.provider not in {"fastembed", "openai"}:
+            raise ValueError(f"Unsupported embedding provider: {self.provider}")
+        self.api_key = (
+            api_key or settings.openai_api_key if self.provider == "openai" else ""
+        )
+        self.model = model or (
+            settings.fastembed_model
+            if self.provider == "fastembed"
+            else EMBEDDING_MODEL
+        )
         self.max_retries = max_retries
 
-        if not self.api_key:
+        if self.provider == "openai" and not self.api_key:
             raise ValueError("OPENAI_API_KEY not configured")
 
-        self.client = openai.AsyncOpenAI(api_key=self.api_key)
+        self.client = (
+            openai.AsyncOpenAI(api_key=self.api_key)
+            if self.provider == "openai"
+            else None
+        )
+        self._local_model = None
+
+    @property
+    def dimensions(self) -> int:
+        if self.provider == "openai":
+            return EMBEDDING_DIMENSIONS
+        from fastembed import TextEmbedding
+
+        return TextEmbedding.get_embedding_size(self.model)
+
+    def _embed_local(self, texts: list[str]) -> list[list[float]]:
+        from fastembed import TextEmbedding
+
+        if self._local_model is None:
+            self._local_model = TextEmbedding(
+                model_name=self.model, local_files_only=local_only_request.get()
+            )
+        return [vector.tolist() for vector in self._local_model.embed(texts)]
 
     def prepare_embedding_text(self, pattern_data: dict) -> str:
         """Prepare text for embedding from pattern data.
@@ -104,6 +165,15 @@ class EmbeddingService:
         """
         if not text or not text.strip():
             raise EmbeddingError("Cannot generate embedding for empty text")
+
+        if self.provider == "fastembed":
+            try:
+                vector = (await asyncio.to_thread(self._embed_local, [text]))[0]
+            except Exception as exc:
+                raise EmbeddingError(
+                    f"Local embedding failed: {type(exc).__name__}"
+                ) from exc
+            return EmbeddingResult(text, vector, self.model, 0)
 
         last_error: Exception | None = None
 
@@ -217,6 +287,14 @@ class EmbeddingService:
         Raises:
             EmbeddingError: If batch generation fails.
         """
+        if self.provider == "fastembed":
+            try:
+                return await asyncio.to_thread(self._embed_local, texts)
+            except Exception as exc:
+                raise EmbeddingError(
+                    f"Local embedding failed: {type(exc).__name__}"
+                ) from exc
+
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):

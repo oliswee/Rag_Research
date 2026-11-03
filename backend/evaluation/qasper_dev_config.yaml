@@ -1,0 +1,41 @@
+# M1 development benchmark; published labels, not FolioTrace's M8 Gold.
+name: qasper_v0_3_dev_40
+corpus_version: qasper-v0.3-dev-40
+source: https://huggingface.co/datasets/allenai/qasper
+source_archive: https://qasper-dataset.s3.us-west-2.amazonaws.com/qasper-train-dev-v0.3.tgz
+source_archive_sha256: a28fdf966db827bcee3d873107d6b6669864fb7ca8fbf73a192f5e39191bdb5a
+source_dev_sha256: 2ae7ee62a65b1c4225791c70de80c2aad4e8998cf1fd4f09a53103db4f21af93
+preparation_script: evaluation.prepare_qasper
+source_split: validation
+source_format: S2ORC extracted text
+paper_count: 40
+question_count: 40
+answerable_count: 32
+paper_scoped_no_answer_count: 8
+papers: data/evaluation/qasper_benchmark/papers.json
+papers_sha256: 6780f81a5fc506b0862791980d810e9004307b4207107499638900f55645f462
+chunks: data/evaluation/qasper_benchmark/chunks.jsonl
+chunks_sha256: bae57496445d2b5dce8bc3aa7f5a761a6ed5a43fd57fab43a1116e26faeb7ace
+labels: data/evaluation/qasper_benchmark/labels.jsonl
+labels_sha256: 496751dc21dafddba93db95280848147eba17b58ecb584299820c9ef5dd58080
+chunker: source_index.build_chunks
+chunk_size_characters: 1200
+embedding_provider: fastembed
+embedding_model: BAAI/bge-small-en-v1.5
+embedding_dimensions: 384
+generation_provider: ollama
+generation_model: qwen3:4b-instruct
+judge_provider: ollama
+judge_model: qwen3:4b-instruct
+index_dataset_id: benchmark:c0d182c5013c0edd
+retrieval_modes: [bm25, dense, hybrid]
+deepeval_version: 4.2.8
+judge_run: true
+judge_case_count: 2
+judge_reference_metrics_run: true
+judge_reference_case_count: 1
+judge_input: data/evaluation/qasper_benchmark/qasper_generation_smoke_inputs.jsonl
+judge_output: data/evaluation/qasper_benchmark/eval_results_smoke.jsonl
+judge_reference_output: data/evaluation/qasper_benchmark/eval_results_reference.jsonl
+label_status: published_human_annotations
+usage: development_only

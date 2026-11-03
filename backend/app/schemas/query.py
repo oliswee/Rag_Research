@@ -23,6 +23,8 @@ class QueryRequest(BaseModel):
     paper_ids: list[str] | None = None
     retrieval_mode: Literal["hybrid", "dense", "bm25"] = "dense"
     rewrite_query: bool = False
+    local_only: bool = False
+    latest: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
     year_to: int | None = Field(None, ge=1800, le=2100)
     provider: Literal["semantic_scholar", "openalex", "pubmed", "arxiv"] | None = None
@@ -44,6 +46,8 @@ class FollowUpRequest(BaseModel):
     paper_ids: list[str] | None = None
     retrieval_mode: Literal["hybrid", "dense", "bm25"] | None = None
     rewrite_query: bool = False
+    local_only: bool = False
+    latest: bool = False
     year_from: int | None = Field(None, ge=1800, le=2100)
     year_to: int | None = Field(None, ge=1800, le=2100)
     provider: Literal["semantic_scholar", "openalex", "pubmed", "arxiv"] | None = None
@@ -53,6 +57,7 @@ class QueryResponse(BaseModel):
     """Response from a query."""
 
     session_id: str = Field(..., description="Session ID for follow-up queries")
+    run_id: str | None = None
     response: str = Field(..., description="Synthesized answer with citations")
     sources: list[SourceReference] = Field(
         default_factory=list,

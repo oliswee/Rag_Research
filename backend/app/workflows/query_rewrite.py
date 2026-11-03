@@ -5,8 +5,8 @@ import logging
 import re
 from typing import Literal
 
-from app.config import settings
 from app.schemas.session import ConversationTurn
+from app.services.retrieval_trace import RetrievalTrace
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,10 @@ RewriteStatus = Literal["disabled", "applied", "unavailable", "failed"]
 
 
 async def rewrite_for_retrieval(
-    question: str, history: list[ConversationTurn], enabled: bool
+    question: str,
+    history: list[ConversationTurn],
+    enabled: bool,
+    trace: RetrievalTrace | None = None,
 ) -> tuple[str, RewriteStatus]:
     """Return a search query and its status, preserving context on fallback."""
     previous = next(
@@ -23,7 +26,9 @@ async def rewrite_for_retrieval(
     fallback = f"{previous} {question}" if previous else question
     if not enabled:
         return fallback, "disabled"
-    if not settings.anthropic_api_key:
+    from app.services.llm_client import llm_available
+
+    if not llm_available():
         return fallback, "unavailable"
 
     from app.services.llm_client import LLMClient
@@ -32,7 +37,9 @@ async def rewrite_for_retrieval(
         {"role": turn.role, "content": turn.content[:1000]} for turn in history[-6:]
     ]
     try:
-        result = await LLMClient().complete_json(
+        client = LLMClient()
+        client.trace = trace
+        result = await client.complete_json(
             system_prompt=(
                 "Rewrite the current question as one standalone search query for "
                 "academic source excerpts. Resolve references using the conversation "

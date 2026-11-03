@@ -2,7 +2,7 @@
 
 Usage: uv run python -m evaluation.evaluate labels.jsonl --output report.json
 Each line: {"query": "...", "relevant_chunk_ids": ["..."], "group": "exact_terms"}
-The optional --judge flag needs deepeval and a configured judge API key.
+Use evaluation.deepeval_adapter for explicit opt-in LLM judging.
 """
 
 import argparse
@@ -67,7 +67,7 @@ def citations_valid(
     return ids <= {source["chunk_id"] for source in evidence}
 
 
-async def run_case(case: dict, judge: bool = False) -> dict:
+async def run_case(case: dict) -> dict:
     relevant = set(case["relevant_chunk_ids"])
     output = {
         "query": case["query"],
@@ -94,22 +94,6 @@ async def run_case(case: dict, judge: bool = False) -> dict:
             output["citation_ids_valid"] = citations_valid(
                 answer, cited, answerable=bool(relevant)
             )
-            if judge and cited:
-                from deepeval.metrics import FaithfulnessMetric
-                from deepeval.test_case import LLMTestCase
-
-                metric = FaithfulnessMetric()
-                test_case = LLMTestCase(
-                    input=case["query"],
-                    actual_output=answer,
-                    retrieval_context=[source["excerpt"] for source in cited],
-                )
-                metric.measure(test_case)
-                output["faithfulness"] = {
-                    "score": metric.score,
-                    "reason": metric.reason,
-                    "judge": type(metric.model).__name__,
-                }
     return output
 
 
@@ -170,6 +154,11 @@ async def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("evaluation-report.json"))
     parser.add_argument("--judge", action="store_true")
     args = parser.parse_args()
+    if args.judge:
+        parser.error(
+            "LLM judging requires an explicit provider and model; "
+            "use python -m evaluation.deepeval_adapter instead"
+        )
     cases = [
         json.loads(line)
         for line in args.labels.read_text(encoding="utf-8").splitlines()
@@ -177,7 +166,7 @@ async def main() -> None:
     ]
     if not cases:
         raise SystemExit("No labelled queries provided")
-    results = [await run_case(case, args.judge) for case in cases]
+    results = [await run_case(case) for case in cases]
     report = build_report(results)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote {args.output}; quality gate met: {report['quality_gate_met']}")

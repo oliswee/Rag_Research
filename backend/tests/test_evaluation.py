@@ -1,3 +1,8 @@
+import asyncio
+import sys
+
+import pytest
+
 from evaluation.evaluate import (
     build_report,
     citations_valid,
@@ -6,6 +11,20 @@ from evaluation.evaluate import (
     ndcg_at_k,
     recall_at_k,
 )
+
+
+def test_legacy_judge_flag_cannot_implicitly_use_default_openai(monkeypatch, capsys):
+    from evaluation.evaluate import main
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["evaluate", "missing-labels.jsonl", "--judge"],
+    )
+    with pytest.raises(SystemExit) as failure:
+        asyncio.run(main())
+    assert failure.value.code == 2
+    assert "explicit" in capsys.readouterr().err
 
 
 def test_ranked_metrics_and_citation_integrity():

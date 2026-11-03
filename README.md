@@ -10,14 +10,14 @@ A local research assistant for discovering papers and tracing answers to source 
 - Open **Explore DOI metadata** on a paper with a DOI to fetch venue, publisher, date, type, and deposited reference count from Crossref. This makes one optional Crossref request and does not request a separate citation graph.
 - When adding a paper to the library, the importer tries its public PDF first, then checks Unpaywall for an open PDF when `UNPAYWALL_EMAIL` is configured. If no usable PDF is found, it keeps the abstract or metadata and shows the actual content scope. The **Abstract preview** label in search describes the result card; it does not predict the import outcome.
 - Click **Add to library** on one result or select several for a batch import. Open PDFs are parsed by page; unavailable PDFs fall back to abstracts or metadata. DOI, arXiv and provider IDs prevent duplicate imports. The library has no fixed paper count limit.
-- Upload PDFs or paste text, and review generated claims where API keys are available.
-- Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix. Generated claims must cite an existing excerpt and quote text from it; a second Anthropic call checks whether each claim is supported by those quotes before it is shown. This adds latency and API usage, and model-based checks cannot guarantee factual correctness. If the support check is unavailable, no unchecked generated claim is shown. Previously approved patterns that are rejected are excluded from legacy search.
+- Upload PDFs or paste text, and review generated claims with the configured local or remote model.
+- Ask questions against local source excerpts, filter by paper, year or provider, and compare 2–5 papers in an evidence matrix. Generated claims must cite an existing excerpt and quote text from it; a second model call checks whether each claim is supported by those quotes before it is shown. This adds latency, and remote providers also charge for API usage. Model-based checks cannot guarantee factual correctness. If the support check is unavailable, no unchecked generated claim is shown. Previously approved patterns that are rejected are excluded from legacy search.
 - Use SQLite FTS5 keyword search, Qdrant dense search, or experimental RRF hybrid search. Dense retrieval falls back to keyword search when vectors are unavailable. Each answer cites only SQLite excerpts; abstract excerpts have no invented page number.
-- The query page automatically turns questions into standalone retrieval queries and adds up to three related search terms when an Anthropic API key is configured. The answer still addresses the original question, and the effective search query is shown with the result. If rewriting is unavailable, search uses the current question with the previous question for context. The extra model call adds latency and API usage; keyword expansion can occasionally broaden results beyond the intended topic.
+- The query page automatically turns questions into standalone retrieval queries and adds up to three related search terms when the configured model is available. The answer still addresses the original question, and the effective search query is shown with the result. If rewriting is unavailable, search uses the current question with the previous question for context. The extra model call adds latency; remote providers also charge for API usage. Keyword expansion can occasionally broaden results beyond the intended topic.
 
 ## Run locally
 
-### Native app with Qdrant in Docker
+### Native app with Qdrant and Ollama in Docker
 
 Install Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+, and Docker Desktop. From the repository root, run these PowerShell commands:
 
@@ -27,7 +27,14 @@ if (!(Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env }
 New-Item -ItemType Directory -Force backend/data | Out-Null
 ```
 
-Add keys to `backend/.env` when needed. `ANTHROPIC_API_KEY` enables generated answers and claim extraction; `OPENAI_API_KEY` enables dense indexing and search. Paper discovery and SQLite keyword search work without either key. `SEMANTIC_SCHOLAR_API_KEY` and `NCBI_API_KEY` are optional; `NCBI_EMAIL` can identify your NCBI requests. Set `UNPAYWALL_EMAIL` to an email address to enable Unpaywall DOI lookups. Environment files are ignored by Git. Full text is never guaranteed; provider limits, access rights, missing identifiers, or extraction failures can leave a paper at abstract or metadata scope. [NCBI E-utilities guidance](https://www.ncbi.nlm.nih.gov/books/NBK25497/) describes its request limits and [NCBI's disclaimer](https://www.ncbi.nlm.nih.gov/About/disclaimer.html) applies to PubMed data.
+For generated answers and claim extraction, start local Ollama and download the default model. The first command is needed once; on later starts, use `docker start foliotrace-ollama`. NVIDIA GPU access requires Docker GPU support; omit `--gpus all` for CPU use.
+
+```powershell
+docker run -d --gpus all -v foliotrace_ollama_models:/root/.ollama -p 127.0.0.1:11434:11434 --name foliotrace-ollama ollama/ollama
+docker exec foliotrace-ollama ollama pull qwen3:4b-instruct
+```
+
+FastEmbed downloads `BAAI/bge-small-en-v1.5` on first use and creates model-specific Qdrant collections, preserving any older vectors. No paid API key is needed for local embeddings, answers or DeepEval judging. To opt into remote generation, set `LLM_PROVIDER=deepseek` and `DEEPSEEK_API_KEY`, or `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` in `backend/.env`. To opt into remote embeddings, set `EMBEDDING_PROVIDER=openai` and `OPENAI_API_KEY`; reindex after changing embedding models. `SEMANTIC_SCHOLAR_API_KEY` and `NCBI_API_KEY` are optional; `NCBI_EMAIL` can identify your NCBI requests. Set `UNPAYWALL_EMAIL` to an email address to enable Unpaywall DOI lookups. Environment files are ignored by Git. Full text is never guaranteed; provider limits, access rights, missing identifiers, or extraction failures can leave a paper at abstract or metadata scope. [NCBI E-utilities guidance](https://www.ncbi.nlm.nih.gov/books/NBK25497/) describes its request limits and [NCBI's disclaimer](https://www.ncbi.nlm.nih.gov/About/disclaimer.html) applies to PubMed data.
 
 Start the API in one terminal:
 
@@ -54,14 +61,16 @@ To let Compose build and run the frontend, API, and Qdrant together instead, run
 
 ```powershell
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up -d ollama qdrant
+docker compose exec ollama ollama pull qwen3:4b-instruct
 docker compose up --build
 ```
 
 Open [http://localhost:3000/discover](http://localhost:3000/discover). Compose runs SQLite migrations at startup and stores its database and Qdrant data in Docker volumes. This SQLite database is separate from `backend/data/research.db` used by the native API, so papers imported through one setup do not automatically appear in the other.
 
-After adding an OpenAI key to a library created without one, run `uv run python -m evaluation.reindex` from `backend/` to rebuild source vectors. Keywords remain searchable while indexing is unavailable.
+After changing the embedding model in an existing library, run `uv run python -m evaluation.reindex` from `backend/` to populate its separate vector collection. Keywords remain searchable while indexing is unavailable.
 
-Retrieval quality is not yet certified: the spec requires 40 independently labelled queries before hybrid search becomes the default. Run `uv run python -m evaluation.evaluate labels.jsonl --output report.json` from `backend/` after creating that dataset. Each JSONL row needs a `query` and `relevant_chunk_ids`; an empty relevant list marks an unanswerable case. Add `--judge` and install DeepEval to include Faithfulness scoring. The script reports Recall@10, nDCG@10, Hit@10, MRR@10, and latency for each retrieval mode. Relevance metric means use only answerable cases; `no_answer_count` reports excluded cases, while latency includes every query. It rejects an uncited answer when relevant evidence is labelled, rejects unknown citation IDs, and accepts an uncited unanswerable case only when the answer explicitly abstains.
+Retrieval quality is not yet certified. The [M1 QASPER development baseline](backend/evaluation/baseline_v1.md) uses published evidence labels without claiming an independent FolioTrace Gold set. M1–M7 use automatic checks; independent human Gold, formal PDF quality review and final ablation belong to M8. Run `uv run python -m evaluation.evaluate labels.jsonl --output report.json` from `backend/` for a local retrieval report. Each JSONL row needs a `query` and `relevant_chunk_ids`; an empty relevant list marks an unanswerable case. The script reports Recall@10, nDCG@10, Hit@10, MRR@10, and latency for each retrieval mode. Relevance means use only answerable cases, while latency includes every query. The opt-in DeepEval adapter in `backend/evaluation/deepeval_adapter.py` requires an explicit judge provider and model. For local judging use `--provider ollama --model qwen3:4b-instruct`; failed judges are recorded as `not_evaluated`.
 
 To check a labelled corpus without changing your library, run `uv run python -m evaluation.isolated_corpus --papers papers.json --chunks chunks.jsonl --labels labels.jsonl --output isolated-report.json` from `backend/`. The paper file is a JSON array with `provider`, `id`, `title`, and `source_url`; each chunk JSONL row needs `id`, `paper_id` (`provider:id`), `chunk_index`, `text`, and `checksum`. Each label may also set `paper_ids` to a non-empty list of paper IDs; retrieval and relevant chunks are then limited to those papers. This is useful when a question or no-answer judgment concerns one specific paper. The tool validates all relevant chunk IDs, loads an in-memory SQLite database, and calls the application's BM25 retrieval path. It reports relevance metrics, groups, splits, and latency. `labels_declared_reviewed` becomes true only when every row has `label_status: "independently_reviewed"`, `reviewer`, and `review_date`; metadata alone cannot prove independent review. This BM25-only report always leaves `quality_gate_met` false; dense/hybrid comparison and citation checks still require the full evaluator.
 

@@ -18,12 +18,15 @@ def validate_annotation(row, documents, *, require_human=False):
             original.get("pdf_bytes"), bytes
         ):
             raise ValueError("Native PDF bytes required")
+        from app.services.pdf_parser import PDFParseError, PDFParserService
+
+        try:
+            parsed = PDFParserService().parse(original["pdf_bytes"])
+        except PDFParseError as exc:
+            raise ValueError("Invalid native PDF source") from exc
         page = row.get("pdf_page_or_null")
-        text = (
-            original.get("pages", {}).get(page)
-            if type(page) is int and page > 0
-            else None
-        )
+        actual = {item.number: item.structured_text for item in parsed.pages}
+        text = actual.get(page) if type(page) is int and page > 0 else None
         version = "sha256:" + sha256(original["pdf_bytes"])
     else:
         text = original
@@ -100,6 +103,14 @@ def verify_freeze(root, manifest):
         paths.append(path)
     if freeze_manifest(root, paths, manifest["config"]) != manifest:
         raise ValueError("Frozen inputs changed")
+
+
+def verify_runtime(manifest):
+    from app.services.trace_versions import configuration_snapshot
+
+    _, current = configuration_snapshot()
+    if manifest.get("config", {}).get("runtime") != current:
+        raise ValueError("Runtime differs from the frozen pipeline/model/budgets")
 
 
 def load_jsonl(path):

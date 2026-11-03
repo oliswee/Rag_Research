@@ -58,10 +58,10 @@
 
 **Interfaces:** `record_run_manifest(db,trace,response)` stores run/config/scope/minimal canonical source refs; `POST /api/feedback` accepts known run/source and one of six reasons; `create_feedback_regression` / `run_feedback_regression` / fix-reference record form a local roundtrip. Wrong-paper, unsupported-citation and web-result-irrelevant templates are labelled synthetic guards. Real semantic feedback without labels stays pending review.
 
-- [ ] RED local/Web feedback identity, unknown run/foreign source, bounded storage, no raw external full text/keys, all six reason choices and deletion-retained diagnostic identity.
-- [ ] RED three synthetic feedback→regression→automatic guard result→fix record roundtrips; no arbitrary code execution, HTTP fetching, training or external issue posting.
-- [ ] Implement SQLite persistence/API and accessible English UI acknowledgement/errors; preserve scope and source granularity.
-- [ ] GREEN backend/UI focused checks; commit.
+- [x] RED local/Web feedback identity, unknown run/foreign source, bounded storage, no raw external full text/keys, all six reason choices and deletion-retained diagnostic identity.
+- [x] RED three synthetic feedback→regression→automatic guard result→fix record roundtrips; no arbitrary code execution, HTTP fetching, training or external issue posting.
+- [x] Implement SQLite persistence/API and accessible English UI acknowledgement/errors; preserve scope and source granularity.
+- [x] GREEN backend/UI focused checks; commit.
 
 ## Task4 — Request budgets, stage accounting and injection regression
 

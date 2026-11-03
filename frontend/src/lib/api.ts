@@ -3,6 +3,9 @@
  */
 
 import type {
+  FeedbackManifest,
+  FeedbackRequest,
+  FeedbackReceipt,
   PublicationRecord,
   ApiError,
   ApiRequestError as ApiRequestErrorType,
@@ -26,6 +29,16 @@ import type {
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export function getFeedbackRun(runId: string, signal?: AbortSignal): Promise<FeedbackManifest> {
+  return request<FeedbackManifest>(`/api/feedback/runs/${encodeURIComponent(runId)}`, {signal});
+}
+
+export function submitFeedback(payload: FeedbackRequest, signal?: AbortSignal): Promise<FeedbackReceipt> {
+  return request<FeedbackReceipt>("/api/feedback", {
+    method: "POST", body: JSON.stringify(payload), signal,
+  });
+}
 
 export function getPublicationStatus(paperId: string, signal?: AbortSignal): Promise<PublicationRecord> {
   return request<PublicationRecord>(`/api/papers/${encodeURIComponent(paperId)}/publication`, { signal });

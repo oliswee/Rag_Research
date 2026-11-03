@@ -16,6 +16,7 @@ from app.models import Paper, PaperChunk, PaperStatus
 from app.schemas.evidence import GroundedAnswer
 from app.schemas.query import FollowUpRequest, QueryRequest, QueryResponse
 from app.schemas.session import ConversationTurn, SourceReference
+from app.services.answer_feedback import record_run
 from app.services.context_packing import pack_context
 from app.services.evidence_routing import RoutingDecision, Sufficiency, parse_policy
 from app.services.grounded_qa import answer_grounded
@@ -296,7 +297,7 @@ async def _submit_query_impl(request, db, trace):
             ],
         ),
     )
-    return QueryResponse(
+    response = QueryResponse(
         session_id=session.session_id,
         run_id=trace.run_id,
         response=answer,
@@ -329,6 +330,15 @@ async def _submit_query_impl(request, db, trace):
         clarification=clarification.model_dump(),
         discovery_url=clarification.discovery_url,
     ).model_dump()
+    try:
+        await record_run(db, trace, response, paper_ids=request.paper_ids)
+    except Exception as exc:
+        await db.rollback()
+        trace.record_failure("feedback_manifest", exc)
+        response["notices"].append(
+            "Local feedback storage is unavailable for this run."
+        )
+    return response
 
 
 @router.post("/followup")

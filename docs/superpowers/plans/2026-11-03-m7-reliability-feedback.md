@@ -78,11 +78,11 @@
 
 **Files:** `evaluation/reliability_benchmark.py`, `evaluation/m7_development.md`, separate `metrics_history.md` section12, `docs/reliability_maintenance.md`; ignored raw artifacts/30-request Trace summaries. Read frontend AGENTS/installed Next docs before UI edits.
 
-- [ ] Run >=30 real local-hardware requests with actual BGE, Qdrant engine, reranker/Ollama when used; isolate synthetic corpus/dataset, record warm/cold/mode/failures/p50/p95/model calls/tokens/network attempts. No substituted fake latency claims.
-- [ ] Measure 429/timeout/unavailable/partial-service/budget exhaustion and all adversarial/feedback fixtures separately; report injected boundaries explicitly. Back up local SQLite before migration/maintenance; never rebuild the user's library just to obtain a benchmark.
-- [ ] One fresh whole-branch reviewer after implementation; reproduce/fix important findings once. Full appropriate backend/frontend/lint/build/migration/privacy checks and source fingerprint evidence.
-- [ ] Push own branch, draft PR targeting merged main, exact-head CI, issue59/root plan/ledger/metrics update. Notify M7 progress and continue directly to separately planned M8; no intermediate approval prompt.
+- [x] Run >=30 real local-hardware requests with actual BGE, Qdrant engine, reranker/Ollama when used; isolate synthetic corpus/dataset, record warm/cold/mode/failures/p50/p95/model calls/tokens/network attempts. No substituted fake latency claims.
+- [x] Measure 429/timeout/unavailable/partial-service/budget exhaustion and all adversarial/feedback fixtures separately; report injected boundaries explicitly. Back up local SQLite before migration/maintenance; never rebuild the user's library just to obtain a benchmark.
+- [x] One fresh whole-branch reviewer after implementation; reproduce/fix important findings once. Full appropriate backend/frontend/lint/build/migration/privacy checks and source fingerprint evidence.
+- [x] Push own branch, draft PR targeting merged main, exact-head CI, issue59/root plan/ledger/metrics update. Notify M7 completion and stop, per the user's latest explicit instruction (2026-11-03). Do not start M8.
 
-## M8 handoff
+## M8 deferred by user
 
-Freeze the verified M7 implementation/config/corpus for M8. Use a separate plan/branch and retain untouched final test labels. Prepare annotation guidelines/review materials and explicit unresolved human-audit gates, then run all reproducible automatic comparisons/report/demo work. Do not quietly call delegated AI review independent human annotation. Final user notification should distinguish engineering completion from any unfulfilled formal human-quality acceptance.
+The latest user instruction is to complete M7 and stop. M8 remains unstarted, including its first independent human Gold/PDF audit. Preserve the verified M7 source/config and all development provenance for a future explicit resume; do not mark M8 complete.

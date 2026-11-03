@@ -50,8 +50,7 @@ The local SQLite database was backed up before migration from b72c1a to e95c2a.
 Both existing paper rows remain; `PRAGMA foreign_key_check` returned no violations.
 The runtime benchmark uses separate in-memory SQLite/Qdrant, never this library.
 
-Actual 30-request measurements, final verification and review outcomes are
-appended below after the runs finish. Raw artifacts live under ignored
+Actual 30-request measurements and final verification are recorded below. Raw artifacts live under ignored
 `data/evaluation/m7_runtime_20261103/`; reproduction instructions are in
 [`docs/reliability_maintenance.md`](../../docs/reliability_maintenance.md).
 
@@ -70,10 +69,43 @@ appended below after the runs finish. Raw artifacts live under ignored
 | generation | 30 | 4654.595 | 5567.958 |
 | verification | 30 | 960.081 | 1119.159 |
 
-First request wall16501.730ms; remaining29 wall p507736.223ms/p958939.62ms. BGE indexing warmed its cache before requests; first request is not an all-components cold benchmark. Total trace elapsed ends before optional feedback persistence; wall time includes the returned response. Inherited selected/selected_children markers have unmeasured zero placeholders and are excluded from latency summaries. Some backend/frontend checks overlapped the final requests, so hardware numbers include ordinary local contention. Query rewriting/Web were disabled and not assigned fake timings.
+First request wall16501.730ms; remaining29 wall p50=7736.223ms/p95=8939.620ms. BGE indexing warmed its cache before requests; first request is not an all-components cold benchmark. Total trace elapsed ends before optional feedback persistence; wall time includes the returned response. Inherited selected/selected_children markers have unmeasured zero placeholders and are excluded from latency summaries. Some backend/frontend checks overlapped the final requests, so hardware numbers include ordinary local contention. Query rewriting/Web were disabled and not assigned fake timings.
 
 Observed configuration: `sha256:f2d647a6a3278fefa4fa64cd9931bbd3f7d124c93b700bb1eb79434c11fd1cbe`; pipeline `sha256:8c42b83ecbcc10e42f0347dc36e5eec4c7ac88a151a259e2c85bf210b60d7db3`. Qdrant is the actual local engine with an explicit in-memory storage adapter; Docker/server transport was not measured. No claim about larger real corpora or concurrent users follows.
 
 Final branch review found one P2: a failed retired-generation cleanup could delete deterministic IDs reactivated by later reimport. Reproduced RED; cleanup now rechecks current SQLite active membership and retires obsolete work. Lifecycle/maintenance integration16 tests passed in1.98s; independent review subset53 passed. No other Important/Critical finding. The prior full suite was interrupted to restart against this fix; no partial full-suite success is claimed.
 
 The30-request runtime predates this maintenance-only fix; its recorded config/pipeline hashes are retained above. Final-source config `sha256:0ad1be38f36c945ca63cd8063272b5f5aa75960c7e76535a3e6cf53701d95ad0`, pipeline `sha256:bf06a383141b44ed3e9bf753d850a72d19bd09c6430f0ade02eaa97163c22853` differs, so those hardware timings are not asserted to come from the final source hash. Request/retrieval/generation paths were unchanged by the cleanup fix.
+
+## Final verification and local dependency state
+
+Implementation commit `5f3b7c1c3aadc68e0c71c79a16534a861cda8557` passed exact-head
+CI41603295352 (Backend Tests and Frontend Build). Frontend44 tests passed in9.50s;
+TypeScript, ESLint and production build passed. The first build stopped at an
+existing Next upgrade advisory; retrying the same build succeeded. No dependency
+upgrade is included in M7. Ruff check and format pass across220 backend files.
+The whole-branch privacy gate passes60 changed files before this final report
+update, with configured credentials/contact emails and raw library text absent.
+
+The local complete backend run had1161 passed/14warnings and one deadline
+failure, elapsed3622.93s. Windows Power-Troubleshooter event1 confirms the machine
+slept2026-11-03T08:27:46Z→09:20:56Z during that test. The test's3191.33s wall
+contains this approximately53-minute suspension; the new240s request deadline
+correctly expired after wake. Repeating the failed case and budget/fault suite
+passed15 tests in17.95s (the original case6.97s), without increasing deadlines or
+changing production code. Together with green exact-head CI this resolves the
+failure; do not describe the interrupted local run as a single all-green run.
+Known warnings concern deprecated HTTP422 constants and existing AsyncMock
+coroutines; no new test failure remains.
+
+A read-only check against the user's current library found FTS missing/orphan/
+mismatch counts all0. The configured Qdrant server is unavailable
+(`ResponseHandlingException`), so vector counts and whole-index consistency
+remain unknown/false. No user-library vector rebuild was performed. Actual
+30-request measurements used the explicitly isolated real Qdrant local engine,
+not this unavailable server. Restore the configured Qdrant service before
+claiming normal dense-index readiness; BM25 fallback and source history remain.
+
+Draft PR60 targets main and has not been merged. The latest user instruction is
+to complete M7 and stop. M8 has not begun; independent human Gold/PDF certification
+is not claimed by any M7 engineering result.

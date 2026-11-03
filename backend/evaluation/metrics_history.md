@@ -280,3 +280,9 @@ Issue59，基线主线f98d255；M1–M6已全部合并，主线CI41592777776通�
 Final branch review found one P2: a failed retired-generation cleanup could delete deterministic IDs reactivated by later reimport. Reproduced RED; cleanup now rechecks current SQLite active membership and retires obsolete work. Lifecycle/maintenance integration16 tests passed in1.98s; independent review subset53 passed. No other Important/Critical finding. The prior full suite was interrupted to restart against this fix; no partial full-suite success is claimed.
 
 The30-request runtime predates this maintenance-only fix; its recorded config/pipeline hashes are retained above. Final-source config `sha256:0ad1be38f36c945ca63cd8063272b5f5aa75960c7e76535a3e6cf53701d95ad0`, pipeline `sha256:bf06a383141b44ed3e9bf753d850a72d19bd09c6430f0ade02eaa97163c22853` differs, so those hardware timings are not asserted to come from the final source hash. Request/retrieval/generation paths were unchanged by the cleanup fix.
+
+**M7最终验证：**实现5f3b7c1的exact-head CI41603295352两项通过。前端44passed/9.50s，ESLint/TSC/生产build通过；首次既有Next升级提示中止，重试通过，未改依赖。Ruff check/format全220文件通过。
+
+**本地完整回归的休眠例外：**1161passed/14warnings，1项请求deadline失败，总3622.93s。Windows电源事件确认08:27:46Z至09:20:56Z休眠约53分钟；该用例wall3191.33s。未延长240秒预算，失败例+预算/故障15项重跑17.95s全部通过，原用例6.97s。保留失败日志，不将这批本地执行写成一次全绿；同一实现远程完整CI全绿。
+
+**实际本地依赖：**FTS三类异常计数均0；配置Qdrant服务不可用，向量数量未知，整体consistent=false，未重建用户向量。30请求实测使用真实隔离Qdrant本地引擎，不能据此说服务端已恢复。PR60保持draft/未合并；按用户最新要求完成M7即停，M8未启动。

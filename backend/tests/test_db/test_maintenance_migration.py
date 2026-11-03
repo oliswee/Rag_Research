@@ -1,14 +1,16 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
 from alembic.config import Config
 
 from alembic import command
 from app.config import settings
 
 
+@pytest.mark.parametrize("target", ["c73b7a", "head"])
 def test_maintenance_upgrade_downgrade_preserves_original_source_schema(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, target
 ):
     backend = Path(__file__).resolve().parents[2]
     database = tmp_path / "maintenance.db"
@@ -21,7 +23,7 @@ def test_maintenance_upgrade_downgrade_preserves_original_source_schema(
             "INSERT INTO papers(id,title,type,status,authors,created_at,updated_at) "
             "VALUES('p','Preserved','research_paper','active','[]','2026-11-03','2026-11-03')"
         )
-    command.upgrade(config, "c73b7a")
+    command.upgrade(config, target)
     with sqlite3.connect(database) as db:
         tables = {
             r[0]
@@ -32,6 +34,13 @@ def test_maintenance_upgrade_downgrade_preserves_original_source_schema(
             "source_deletion_jobs",
             "source_sync_states",
         } <= tables
+        if target == "head":
+            assert {
+                "publication_states",
+                "answer_runs",
+                "answer_feedback",
+                "feedback_regressions",
+            } <= tables
         assert db.execute("SELECT title FROM papers WHERE id='p'").fetchone() == (
             "Preserved",
         )

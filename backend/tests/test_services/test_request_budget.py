@@ -59,6 +59,32 @@ def test_explicit_currency_prices_enforce_ceiling(monkeypatch):
     assert budget.calls == budget.external_attempts == 1
 
 
+def test_local_embeddings_use_persistent_cache_without_request_download(monkeypatch):
+    import fastembed
+
+    from app.config import settings
+    from app.services.embedding_service import EmbeddingService
+    from app.services.local_execution import local_only_request
+
+    observed = {}
+
+    class Encoder:
+        def __init__(self, **kwargs):
+            observed.update(kwargs)
+
+        def embed(self, texts):
+            return []
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", Encoder)
+    token = local_only_request.set(True)
+    try:
+        EmbeddingService(provider="fastembed")._embed_local(["test"])
+    finally:
+        local_only_request.reset(token)
+    assert observed["cache_dir"] == settings.fastembed_cache_dir
+    assert observed["local_files_only"] is True
+
+
 @pytest.mark.asyncio
 async def test_deadline_and_context_reset(monkeypatch):
     from fastapi import HTTPException

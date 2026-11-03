@@ -119,7 +119,10 @@ class EmbeddingService:
 
         if self._local_model is None:
             self._local_model = TextEmbedding(
-                model_name=self.model, local_files_only=local_only_request.get()
+                model_name=self.model,
+                cache_dir=settings.fastembed_cache_dir,
+                local_files_only=local_only_request.get(),
+                threads=2,
             )
         return [vector.tolist() for vector in self._local_model.embed(texts)]
 

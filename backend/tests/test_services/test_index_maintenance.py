@@ -13,6 +13,44 @@ from tests.test_services.test_versioned_vectors import (
 vector_index = vector_index_fixture
 
 
+@pytest.mark.asyncio
+async def test_stale_cleanup_cannot_delete_reactivated_generation(
+    async_db_session,
+    vector_index,
+):
+    maintenance = api()
+    from app.services.incremental_index import sync_generation
+
+    embedder = CountingEmbedder()
+    paper, first = await build(async_db_session)
+    await sync_generation(
+        async_db_session, first, embedder=embedder, vector_index=vector_index
+    )
+    _, changed = await build(
+        async_db_session, "Memory accuracy is 94 percent.", paper=paper
+    )
+    await sync_generation(
+        async_db_session, changed, embedder=embedder, vector_index=vector_index
+    )
+    await maintenance.queue_source_deletion(
+        async_db_session, vector_index.dataset_id, [c.id for c in first.children]
+    )
+    await async_db_session.commit()
+    _, restored = await build(async_db_session, paper=paper)
+    await sync_generation(
+        async_db_session, restored, embedder=embedder, vector_index=vector_index
+    )
+    await async_db_session.commit()
+    assert restored.generation.index_version == first.generation.index_version
+    result = await maintenance.repair_index(
+        async_db_session, vector_index, embedder=embedder
+    )
+    assert result["after"]["consistent"]
+    assert vector_index.client.retrieve(
+        CHUNK_COLLECTION, [c.id for c in restored.children]
+    )
+
+
 def api():
     assert importlib.util.find_spec("app.services.index_maintenance"), (
         "Scoped index check/repair is missing"

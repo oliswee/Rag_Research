@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     # Local embeddings are the default; OpenAI remains an explicit option.
     embedding_provider: str = "fastembed"
     fastembed_model: str = "BAAI/bge-small-en-v1.5"
+    fastembed_cache_dir: str = "data/models/embedding"
 
     # Database
     database_url: str = "sqlite:///./data/research.db"

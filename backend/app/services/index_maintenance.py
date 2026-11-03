@@ -240,6 +240,22 @@ async def retry_source_deletions(db, index):
         try:
             for start in range(0, len(job.point_ids), 100):
                 ids = job.point_ids[start : start + 100]
+                # A retired generation can be reactivated with deterministic IDs
+                # after an earlier cleanup failed. Obsolete work must not erase
+                # the newly active source, even within this same dataset.
+                active = set(
+                    (
+                        await db.scalars(
+                            select(PaperChunk.id).where(
+                                PaperChunk.id.in_(ids),
+                                text(active_chunk_sql("paper_chunks")),
+                            )
+                        )
+                    ).all()
+                )
+                ids = [identifier for identifier in ids if identifier not in active]
+                if not ids:
+                    continue
                 if not index.client.collection_exists(CHUNK_COLLECTION):
                     continue
                 points = index.client.retrieve(CHUNK_COLLECTION, ids, with_payload=True)

@@ -256,3 +256,27 @@ Issue57，M5基线 `a802165`，依赖 Draft PR58。以下是可见标签的开�
 | 摘要：准确率和缺失样本量 |1.0|0.5|4970.491|2|664/158|null|
 
 默认模型未替换，合计4次业务调用、1547输入/392输出Token；Judge调用/Token/总资源成本未知，云付费调用0。摘要答案只覆盖已报道准确率，未完整回答样本量；不把support_status=supported解释为问题完整覆盖。两例公开合成诊断不代表整体准确率、真实Web收益或SLA。默认模型和最终诊断的App源码指纹一致。实现提交`ae1fdaa`已通过CI41397523708的后端/前端两项；最终报告提交的exact-head结果记录在PR58。
+
+## 12. M7 可靠性、反馈与本机运行：2026-11-03
+
+Issue59，基线主线f98d255；M1–M6已全部合并，主线CI41592777776通过，四个旧PR未动。此节为工程回归与合成运行诊断，不是独立Gold或真实Web增益。详见[m7_development.md](m7_development.md)。
+
+| 项目 | 实测 | 边界 |
+| --- | --- | --- |
+| 增量索引/修复 | Task1 focused78passed/32.95s | 校验真实FTS postings、物理向量、幂等修复与外库删除隔离 |
+| 版本/撤稿 | 后端43、前端9 focused通过 | Crossref合成事件；未知不等于未撤稿 |
+| 反馈 | 后端24、前端7 focused通过；3个合成闭环 | 真实反馈待复核，不升级Gold/自动训练；fix reference未核实Git |
+| 资源与注入 | focused120passed/7.79s；6恶意+6合法控制+密钥原文 | 受控模型/HTTP注入；另5运行故障+2迁移测试通过 |
+| 实际本机请求 | 30/30返回supported，60次真实模型调用 | 六份简单合成资料，10BM25+10Dense+10Hybrid，非总体准确率 |
+| 实际Token | 输入27575、输出8275 | 业务生成/核验用量；不含机器能耗 |
+| 请求wall p50/p95 | 7753.766 / 9167.209 ms | 首次16501.730ms；余29次7736.223/8939.620ms；含本机测试竞争 |
+| 阶段p50/p95 ms | BM25 8.638/11.316；Dense383.072/443.551；rerank11.176/241.682；生成4654.595/5567.958；核验960.081/1119.159 | 样本量分别20/20/10/30/30；未运行阶段不记假零耗时 |
+| 安全计数 | 外部尝试0、伪造页码0、请求失败0 | Local-only，未做真实Web服务测量 |
+| 本地迁移 | b72c1a→e95c2a，原2篇保留、FK异常0 | 已先SQLite备份，基准使用隔离内存库 |
+| 缓存故障 | 临时BGE缓存丢失；改持久缓存并重备模型 | 首次准备及Windows缓存回退保留原始日志，Local-only不下载 |
+
+配置指纹`sha256:f2d647a6a3278fefa4fa64cd9931bbd3f7d124c93b700bb1eb79434c11fd1cbe`；App指纹`sha256:8c42b83ecbcc10e42f0347dc36e5eec4c7ac88a151a259e2c85bf210b60d7db3`。实际Ollama0.40.13 + qwen3:4b-instruct + RTX4060 Laptop Vulkan；BGE-small-en-v1.5、缓存reranker、真实Qdrant本地引擎。模型API账单为0不等于本机资源成本为0；未测金额保持未知。原始记录在忽略目录`data/evaluation/m7_runtime_20261103/`。完整回归、最终审查和提交CI随后追加。
+
+Final branch review found one P2: a failed retired-generation cleanup could delete deterministic IDs reactivated by later reimport. Reproduced RED; cleanup now rechecks current SQLite active membership and retires obsolete work. Lifecycle/maintenance integration16 tests passed in1.98s; independent review subset53 passed. No other Important/Critical finding. The prior full suite was interrupted to restart against this fix; no partial full-suite success is claimed.
+
+The30-request runtime predates this maintenance-only fix; its recorded config/pipeline hashes are retained above. Final-source config `sha256:0ad1be38f36c945ca63cd8063272b5f5aa75960c7e76535a3e6cf53701d95ad0`, pipeline `sha256:bf06a383141b44ed3e9bf753d850a72d19bd09c6430f0ade02eaa97163c22853` differs, so those hardware timings are not asserted to come from the final source hash. Request/retrieval/generation paths were unchanged by the cleanup fix.
